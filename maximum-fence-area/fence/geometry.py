@@ -487,7 +487,11 @@ class TorchTopology:
     where p_k are the pinned vertices in sorted order.
     """
 
-    def __init__(self, topo: Topology, device="cpu", dtype=None):
+    def __init__(self, topo: Topology, device="cpu", dtype=None, coords0=None, cross_radius=None):
+        """coords0 + cross_radius: only penalize crossings of non-incident fence pairs
+        that are within cross_radius of each other in the starting sketch (a speed
+        optimization; any crossing among the pruned far pairs is still caught by the
+        float embedding check after polishing and by the referee)."""
         import torch
 
         self.torch = torch
@@ -526,6 +530,13 @@ class TorchTopology:
             for j in range(i + 1, topo.n):
                 if (i, j) not in inc:
                     qi.append(i); qj.append(j)
+        self.n_pairs_total = len(qi)
+        if coords0 is not None and cross_radius is not None and qi:
+            X0 = np.asarray(coords0, dtype=float)
+            P1, P2 = X0[topo.fences[:, 0]], X0[topo.fences[:, 1]]
+            I, J = np.array(qi), np.array(qj)
+            near = segment_distance(P1[I], P2[I], P1[J], P2[J]) < cross_radius
+            qi, qj = I[near].tolist(), J[near].tolist()
         self.qi, self.qj = L(qi), L(qj)
         # ordering of pins along each host: indices into T_ext = [0, t_0..t_{K-1}, 1]
         kidx = {v: k + 1 for k, v in enumerate(self.pin_list)}
@@ -537,6 +548,10 @@ class TorchTopology:
         self.ord_lo, self.ord_hi = L(lo), L(hi)
 
     # -- packing ----------------------------------------------------------
+    # Public layout is batch-first Z[B, P]. Internally the optimizer keeps the
+    # same numbers stored transposed, Zt[P, B] ("batch-last"), so every gather
+    # is an index_select along dim 0 of contiguous B-vectors and its backward is
+    # a coalesced index_add (much faster than batch-first fancy indexing).
     def split(self, Z):
         X = Z[:, : 2 * self.V].reshape(Z.shape[0], self.V, 2)
         T = Z[:, 2 * self.V:]
@@ -545,8 +560,12 @@ class TorchTopology:
     def pack(self, X, T):
         return self.torch.cat([X.reshape(X.shape[0], -1), T], dim=1)
 
+    def split_t(self, Zt):
+        """Zt[P, B] -> X[V, 2, B], T[K, B] (views)."""
+        return Zt[: 2 * self.V].view(self.V, 2, -1), Zt[2 * self.V:]
+
     def initial_t(self, X):
-        """Projection parameters of pinned vertices onto their hosts."""
+        """Projection parameters of pinned vertices onto their hosts (batch-first X[B, V, 2])."""
         A = X[:, self.pin_ha]
         Bv = X[:, self.pin_hb]
         P = X[:, self.pin_v]
@@ -554,65 +573,92 @@ class TorchTopology:
         return ((P - A) * d).sum(-1) / (d * d).sum(-1).clamp_min(1e-12)
 
     # -- objective --------------------------------------------------------
+    @staticmethod
+    def _cross(u, v):
+        return u[:, 0] * v[:, 1] - u[:, 1] * v[:, 0]
+
+    def face_areas_t(self, X):
+        """[F, B] signed shoelace areas of the bounded faces (X is [V, 2, B])."""
+        xi = X.index_select(0, self.fe_i)
+        xj = X.index_select(0, self.fe_j)
+        c = self._cross(xi, xj)
+        A = X.new_zeros(self.F, X.shape[-1])
+        return 0.5 * A.index_add_(0, self.fe_f, c)
+
     def face_areas(self, X):
-        """[B, F] signed shoelace areas of the bounded faces."""
-        torch = self.torch
-        xi, xj = X[:, self.fe_i], X[:, self.fe_j]
-        c = xi[..., 0] * xj[..., 1] - xj[..., 0] * xi[..., 1]
-        A = torch.zeros(X.shape[0], self.F, device=X.device, dtype=X.dtype)
-        return 0.5 * A.index_add_(1, self.fe_f, c)
+        """[B, F] areas for a batch-first X[B, V, 2]."""
+        return self.face_areas_t(X.permute(1, 2, 0).contiguous()).T
 
     # -- constraint residuals ----------------------------------------------
-    def residuals(self, Z, turn_margin: float = 0.03, t_gap: float = 1e-3, min_face: float = 1e-3):
-        """All constraint residuals as differentiable tensors (zero == satisfied).
+    def residuals_t(self, Zt, turn_margin: float = 0.03, t_gap: float = 1e-3, min_face: float = 1e-3):
+        """All constraint residuals as differentiable tensors, batch-last ([*, B]).
 
-        length : [B, n]    |segment length - 1|                     (a)
-        cross  : [B, Q]    proper-intersection depth, non-incident   (b)
-        area   : [B, F]    relu(face_area - 1)                       (c)
-        pin    : [B, K]    distance of pinned vertex from host point (d)
-        order  : [B, *]    relu(t_gap - (t_next - t_prev)) along hosts (keeps pins inside, in order)
-        turn   : [B, C]    relu(|turn angle| - (pi - margin)) at face corners (no folding/overlap)
-        face_pos: [B, F]   relu(min_face - face_area)  (faces stay positively oriented)
+        length   : [n, B]    segment length - 1 (signed)              (a)
+        cross    : [Q, B]    proper-intersection depth of non-incident fence pairs (b)
+        area     : [F, B]    relu(face_area - 1)                       (c)
+        pin_vec  : [K, 2, B] pinned vertex minus its host point        (d)
+        pin      : [K, B]    |pin_vec|
+        order    : [*, B]    relu(t_gap - (t_next - t_prev)) along each host (pins stay inside, in order)
+        turn     : [C, B]    relu(|turn angle| - (pi - margin)) at face corners (no folding / overlap)
+        face_pos : [F, B]    relu(min_face - face_area) (faces stay positively oriented)
+        _areas   : [F, B]    the face areas themselves (objective = their sum)
         """
         torch = self.torch
-        X, T = self.split(Z)
+        X, T = self.split_t(Zt)
+        B = X.shape[-1]
         out = {}
-        d = X[:, self.fb] - X[:, self.fa]
-        out["length"] = (d.pow(2).sum(-1) + 1e-18).sqrt() - 1.0
-        A = X[:, self.pin_ha]
-        Bv = X[:, self.pin_hb]
-        target = A + T.unsqueeze(-1) * (Bv - A)
-        out["pin"] = ((X[:, self.pin_v] - target).pow(2).sum(-1) + 1e-30).sqrt() if self.K else X.new_zeros(X.shape[0], 0)
-        areas = self.face_areas(X)
+        P1 = X.index_select(0, self.fa)
+        P2 = X.index_select(0, self.fb)
+        D = P2 - P1
+        out["length"] = (D.pow(2).sum(1) + 1e-18).sqrt() - 1.0
+        if self.K:
+            A = X.index_select(0, self.pin_ha)
+            Bv = X.index_select(0, self.pin_hb)
+            pv = X.index_select(0, self.pin_v) - (A + T.unsqueeze(1) * (Bv - A))
+            out["pin_vec"] = pv
+            out["pin"] = (pv.pow(2).sum(1) + 1e-30).sqrt()
+        else:
+            out["pin_vec"] = X.new_zeros(0, 2, B)
+            out["pin"] = X.new_zeros(0, B)
+        areas = self.face_areas_t(X)
         out["area"] = torch.relu(areas - 1.0)
         out["face_pos"] = torch.relu(min_face - areas)
-        # crossing depth for non-incident fence pairs
         if len(self.qi):
-            p1, p2 = X[:, self.fa[self.qi]], X[:, self.fb[self.qi]]
-            q1, q2 = X[:, self.fa[self.qj]], X[:, self.fb[self.qj]]
-            cr = lambda u, v: u[..., 0] * v[..., 1] - u[..., 1] * v[..., 0]  # noqa: E731
-            o1 = cr(p2 - p1, q1 - p1)
-            o2 = cr(p2 - p1, q2 - p1)
-            o3 = cr(q2 - q1, p1 - q1)
-            o4 = cr(q2 - q1, p2 - q1)
-            # positive iff both straddle tests fail, i.e. a proper crossing;
-            # its size is the smaller of the two straddle products.
+            p1, di = P1.index_select(0, self.qi), D.index_select(0, self.qi)
+            q1, dj = P1.index_select(0, self.qj), D.index_select(0, self.qj)
+            w = q1 - p1
+            o1 = self._cross(di, w)                 # q1 relative to line p
+            o2 = o1 + self._cross(di, dj)           # q2 = q1 + dj
+            o3 = -self._cross(dj, w)                # p1 relative to line q
+            o4 = o3 + self._cross(dj, di)           # p2 = p1 + di
+            # positive iff both straddle tests fail (a proper crossing); its size
+            # is the smaller of the two straddle products
             out["cross"] = torch.relu(torch.minimum(-o1 * o2, -o3 * o4))
         else:
-            out["cross"] = X.new_zeros(X.shape[0], 0)
-        Text = torch.cat([T.new_zeros(T.shape[0], 1), T, T.new_ones(T.shape[0], 1)], dim=1)
-        out["order"] = torch.relu(t_gap - (Text[:, self.ord_hi] - Text[:, self.ord_lo]))
-        # turn angle at each face corner; |turn| -> pi means the two edges fold onto each other
-        d1 = X[:, self.cv] - X[:, self.cu]
-        d2 = X[:, self.cw] - X[:, self.cv]
-        cz = d1[..., 0] * d2[..., 1] - d1[..., 1] * d2[..., 0]
-        dt = (d1 * d2).sum(-1)
+            out["cross"] = X.new_zeros(0, B)
+        Text = torch.cat([T.new_zeros(1, B), T, T.new_ones(1, B)], dim=0)
+        out["order"] = torch.relu(t_gap - (Text.index_select(0, self.ord_hi) - Text.index_select(0, self.ord_lo)))
+        Xu = X.index_select(0, self.cu)
+        Xv = X.index_select(0, self.cv)
+        Xw = X.index_select(0, self.cw)
+        d1 = Xv - Xu
+        d2 = Xw - Xv
+        cz = self._cross(d1, d2)
+        dt = (d1 * d2).sum(1)
         small = (cz.abs() + dt.abs()) < 1e-12          # zero-length edge: no defined angle
         turn = torch.atan2(torch.where(small, torch.zeros_like(cz), cz),
                            torch.where(small, torch.ones_like(dt), dt))
         out["turn"] = torch.relu(turn.abs() - (math.pi - turn_margin))
         out["_areas"] = areas
         return out
+
+    def residuals(self, Z, **kw):
+        """Batch-first convenience wrapper: Z[B, P] -> dict of [B, *] tensors (same content)."""
+        out = self.residuals_t(Z.T.contiguous(), **kw)
+        res = {}
+        for k, v in out.items():
+            res[k] = v.permute(*range(v.dim() - 1, -1, -1)) if k == "pin_vec" else v.T
+        return res
 
 
 # ---------------------------------------------------------------------------
