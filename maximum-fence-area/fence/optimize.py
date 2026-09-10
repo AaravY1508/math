@@ -40,7 +40,7 @@ from fence import geometry as G
 @dataclass
 class OptConfig:
     batch: int = 16384           # restarts per topology (capped by memory, see mem_cap_gb)
-    steps: int = 1500            # Adam steps
+    steps: int = 1000            # Adam steps
     lr: float = 0.03
     lr_end: float = 2e-4
     rho_start: float = 10.0      # augmented-Lagrangian penalty parameter schedule
@@ -50,10 +50,10 @@ class OptConfig:
     anneal_frac: float = 0.7     # fraction of steps over which rho / w ramp up
     mult_start: float = 0.2      # multiplier updates begin at this fraction of steps ...
     mult_every: int = 40         # ... and happen every this many steps
-    noise_max: float = 0.25      # per-restart init noise sigma ~ U(0, noise_max)
-    scale_jitter: float = 0.12   # per-restart global scale ~ U(1-sj, 1+sj)
-    topk: int = 12               # candidates sent to the CPU polish
-    polish_iters: int = 1500
+    noise_max: float = 0.18      # per-restart init noise sigma ~ U(0, noise_max)
+    scale_jitter: float = 0.10   # per-restart global scale ~ U(1-sj, 1+sj)
+    topk: int = 8                # candidates sent to the CPU polish
+    polish_iters: int = 1200
     verify_top: int = 3          # best polished candidates sent to the referee
     tol: float = 1e-9            # referee tolerance
     mem_cap_gb: float = 14.0     # hard cap for the GPU working set of one batch
@@ -66,10 +66,10 @@ SAFETY = {"cross": 3.0, "order": 1.0, "turn": 0.3, "face_pos": 1.0}
 
 def default_batch(n: int) -> int:
     """Default restarts per topology as a function of n (overridable by flag)."""
-    if n <= 15:
-        return 32768
-    if n <= 30:
+    if n <= 20:
         return 16384
+    if n <= 35:
+        return 12288
     return 10240
 
 

@@ -190,8 +190,18 @@ def grid_fit(n):
 
 
 def seed_genomes(n: int) -> list[dict]:
-    """Hand-written starting programs covering different construction families."""
-    gs = [
+    """Hand-written starting programs covering different construction families
+    (evaluated in this order, so the strongest structural priors come first)."""
+    gs = []
+    if n >= 12:
+        # unit-square grids are the published records at n = 12, 17, 24, 31, 40, 49: start from the
+        # largest grid that fits (grown by cells) and from the next larger grid pruned down to n
+        r, c = grid_fit(n)
+        gs.append({"seed": {"kind": "grid", "rows": r, "cols": c}, "grow": {"inside_prob": 0.1, "snap_prob": 0.6}})
+        r2, c2 = (r, c + 1) if c <= r else (r + 1, c)
+        if 2 * r2 * c2 + r2 + c2 - n <= 4:
+            gs.append({"seed": {"kind": "literal_grid", "rows": r2, "cols": c2}, "grow": {"inside_prob": 0.2}})
+    gs += [
         {"seed": {"kind": "ring", "ring_scale": 1.0}, "grow": {"inside_prob": 1.0}},
         {"seed": {"kind": "ring", "ring_scale": 0.8}, "grow": {"inside_prob": 0.6}},
         {"seed": {"kind": "ring", "k": 4}, "grow": {"inside_prob": 0.15, "m_weights": [0.25, 0.5, 0.25]}},
@@ -205,7 +215,6 @@ def seed_genomes(n: int) -> list[dict]:
     ]
     if n >= 12:
         r, c = grid_fit(n)
-        gs.append({"seed": {"kind": "grid", "rows": r, "cols": c}, "grow": {"inside_prob": 0.2, "snap_prob": 0.6}})
         gs.append({"seed": {"kind": "grid", "rows": r, "cols": c}, "grow": {"inside_prob": 0.2},
                    "edits": ["split_edge", "toggle_junction", "move_fence"]})
     if n >= 16:
@@ -587,10 +596,15 @@ class Worker:
 
     # -- scheduling ----------------------------------------------------------
     def pick_n(self) -> int:
-        # fair share of wall time weighted by priority, with a little randomness
+        """Fair share of wall time weighted by priority, with a little randomness. An n whose
+        best is within 5% of the record gets up to 2x share: a small gain could beat it there."""
         def score(n):
             s = self.state[n]
-            return (s.time_spent + 5.0) / priority(n, s.baseline) * (0.85 + 0.3 * self.rng.random())
+            w = priority(n, s.baseline)
+            if s.best and s.baseline:
+                gap = max(0.0, (s.baseline["A"] - s.best["area"]) / s.baseline["A"])
+                w *= 1.0 + max(0.0, 1.0 - gap / 0.05)
+            return (s.time_spent + 5.0) / w * (0.85 + 0.3 * self.rng.random())
         return min(self.ns, key=score)
 
     def _elite_sketches(self, n: int) -> list[dict]:
@@ -722,6 +736,15 @@ class Worker:
                     self.pending.remove(job)
                     done += 1
                     progressed = True
+                    self.timeouts += 1
+                    if self.timeouts >= 8:
+                        # hung polish/verify tasks hold pool slots forever: replace the pool
+                        self.log({"event": "pool_recreate", "timeouts": self.timeouts})
+                        self._new_pool(terminate_old=True)
+                        for j in self.pending:
+                            self.finalize(j, [])
+                        self.pending.clear()
+                        return done
             if not block or not self.pending:
                 return done
             if max_wait is not None and time.time() - t_start > max_wait:
@@ -790,16 +813,24 @@ class Worker:
                           "file": f"improvements/{name}"})
 
     # -- main loop -----------------------------------------------------------
+    def _new_pool(self, terminate_old=False):
+        if terminate_old and getattr(self, "pool", None) is not None:
+            self.pool.terminate()
+        ctx = mp.get_context("spawn")
+        self.pool = ctx.Pool(self.args.cpu_procs, initializer=O.pool_init, maxtasksperchild=200)
+        self.timeouts = 0
+
     def run(self):
         import torch
 
         torch.cuda.set_device(0)
         torch.cuda.set_per_process_memory_fraction(0.92)
-        ctx = mp.get_context("spawn")
-        self.pool = ctx.Pool(self.args.cpu_procs, initializer=O.pool_init, maxtasksperchild=200)
+        self._new_pool()
         signal.signal(signal.SIGTERM, self._on_term)
         signal.signal(signal.SIGINT, self._on_term)
         soft = self.deadline - self.args.drain_seconds
+        gpu_errors_in_a_row = 0
+        jobs_run = 0
         try:
             while not self.stop and time.time() < soft:
                 self.heartbeat()
@@ -814,11 +845,23 @@ class Worker:
                     try:
                         self.run_gpu(job, cfg)
                         self.pending.append(job)
+                        gpu_errors_in_a_row = 0
+                        jobs_run += 1
+                        if jobs_run % 50 == 0:
+                            torch.cuda.empty_cache()     # keep the caching allocator from fragmenting
                     except Exception as exc:  # noqa: BLE001
                         self.state[n].fails += 1
+                        gpu_errors_in_a_row += 1
                         self.log({"event": "gpu_error", "n": n, "error": f"{type(exc).__name__}: {str(exc)[:300]}",
-                                  "trace": traceback.format_exc()[-1500:]})
+                                  "trace": traceback.format_exc()[-1500:], "in_a_row": gpu_errors_in_a_row})
                         torch.cuda.empty_cache()
+                        if gpu_errors_in_a_row >= 5:
+                            # the CUDA context may be wedged: exit so the supervisor restarts this
+                            # worker from its checkpoint with a fresh context
+                            self.log({"event": "gpu_wedged_exit"})
+                            self.checkpoint(reason="gpu_wedged")
+                            self.pool.terminate()
+                            os._exit(17)
                 if time.time() - self.last_ckpt > self.args.checkpoint_every:
                     self.checkpoint()
             # budget reached: finish outstanding CPU work, then save
@@ -859,14 +902,14 @@ def worker_main(argv=None):
     ap.add_argument("--islands", type=int, default=3)
     ap.add_argument("--migrate-every", type=int, default=30)
     ap.add_argument("--batch", type=int, default=0, help="restarts per topology (0 = default by n)")
-    ap.add_argument("--steps", type=int, default=1500)
-    ap.add_argument("--topk", type=int, default=12)
-    ap.add_argument("--polish-iters", type=int, default=1500)
+    ap.add_argument("--steps", type=int, default=1000)
+    ap.add_argument("--topk", type=int, default=8)
+    ap.add_argument("--polish-iters", type=int, default=1200)
     ap.add_argument("--verify-top", type=int, default=3)
     ap.add_argument("--tol", type=float, default=1e-9)
     ap.add_argument("--mem-cap-gb", type=float, default=14.0)
     ap.add_argument("--cpu-procs", type=int, default=14)
-    ap.add_argument("--max-pending", type=int, default=3)
+    ap.add_argument("--max-pending", type=int, default=4)
     ap.add_argument("--job-timeout", type=float, default=600.0)
     ap.add_argument("--checkpoint-every", type=float, default=300.0)
     ap.add_argument("--drain-seconds", type=float, default=90.0)

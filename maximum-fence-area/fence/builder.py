@@ -646,6 +646,9 @@ def make_seed(n: int, rng, seed: dict) -> Sketch:
             k = int(round(2 * math.sqrt(math.pi * a_est(n)) * seed.get("ring_scale", 1.0)))
         k = max(3, min(k, n))
         return ring(k, squash=seed.get("squash", 1.0), rot=rng.uniform(0, 2 * math.pi))
+    if kind == "literal_grid":
+        # an explicit (possibly too large) grid; fit_count prunes interior fences down to n
+        return grid(int(seed["rows"]), int(seed["cols"]))
     if kind == "grid":
         r, c = int(seed.get("rows", 0)), int(seed.get("cols", 0))
         if r <= 0 or c <= 0 or 2 * r * c + r + c > n:
