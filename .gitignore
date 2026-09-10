@@ -1,0 +1,10 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# maximum-fence-area: local interpreter, virtualenv, and run data (checkpoints/logs are never committed)
+maximum-fence-area/venv/
+maximum-fence-area/.venv/
+maximum-fence-area/.python/
+maximum-fence-area/runs/
