@@ -1,0 +1,492 @@
+{
+  "source": "https://erich-friedman.github.io/packing/fence/",
+  "scraped_at_utc": "2026-09-10T12:56:37+00:00",
+  "page_sha256": "8d2a7e77d21cbff7ed36eaa5bdf81fe9e54cdcd74de6e31faf121ddc1aada9f4",
+  "notes": [
+    "A is the best known total area. 'truncated': true means the page prints the value with a trailing '+',",
+    "i.e. the true record lies in [A, A + 10^-decimals). 'trivial' entries are unit-square grids; the page",
+    "does not claim they are optimal."
+  ],
+  "baselines": {
+    "3": {
+      "A": 0.4330127018922193,
+      "display": "\u221a3/4 = .43301+",
+      "truncated": true,
+      "decimals": 5,
+      "exact_expr": "\u221a3/4",
+      "status": "trivial",
+      "found_by": null,
+      "date": null
+    },
+    "4": {
+      "A": 1.0,
+      "display": "1",
+      "truncated": false,
+      "decimals": 0,
+      "exact_expr": null,
+      "status": "trivial",
+      "found_by": null,
+      "date": null
+    },
+    "5": {
+      "A": 1.0,
+      "display": "1",
+      "truncated": false,
+      "decimals": 0,
+      "exact_expr": null,
+      "status": "trivial",
+      "found_by": null,
+      "date": null
+    },
+    "6": {
+      "A": 1.47585,
+      "display": "1.47585+",
+      "truncated": true,
+      "decimals": 5,
+      "exact_expr": null,
+      "status": "best_known",
+      "found_by": "Antoine Lagache",
+      "date": "August 2026"
+    },
+    "7": {
+      "A": 2.0,
+      "display": "2",
+      "truncated": false,
+      "decimals": 0,
+      "exact_expr": null,
+      "status": "trivial",
+      "found_by": null,
+      "date": null
+    },
+    "8": {
+      "A": 2.10306,
+      "display": "2.10306+",
+      "truncated": true,
+      "decimals": 5,
+      "exact_expr": null,
+      "status": "best_known",
+      "found_by": "Yanis Gomes",
+      "date": "August 2026"
+    },
+    "9": {
+      "A": 2.6363,
+      "display": "2.63630+",
+      "truncated": true,
+      "decimals": 5,
+      "exact_expr": null,
+      "status": "best_known",
+      "found_by": "Yanis Gomes",
+      "date": "August 2026"
+    },
+    "10": {
+      "A": 3.04687,
+      "display": "3.04687+",
+      "truncated": true,
+      "decimals": 5,
+      "exact_expr": null,
+      "status": "best_known",
+      "found_by": "Lu ZeShen",
+      "date": "September 2026"
+    },
+    "11": {
+      "A": 3.53721,
+      "display": "3.53721+",
+      "truncated": true,
+      "decimals": 5,
+      "exact_expr": null,
+      "status": "best_known",
+      "found_by": "Teodor Tohanean",
+      "date": "August 2026"
+    },
+    "12": {
+      "A": 4.0,
+      "display": "4",
+      "truncated": false,
+      "decimals": 0,
+      "exact_expr": null,
+      "status": "trivial",
+      "found_by": null,
+      "date": null
+    },
+    "13": {
+      "A": 4.16199,
+      "display": "4.16199+",
+      "truncated": true,
+      "decimals": 5,
+      "exact_expr": null,
+      "status": "best_known",
+      "found_by": "Bram Cohen",
+      "date": "September 2026"
+    },
+    "14": {
+      "A": 4.74494,
+      "display": "4.74494+",
+      "truncated": true,
+      "decimals": 5,
+      "exact_expr": null,
+      "status": "best_known",
+      "found_by": "Luna",
+      "date": "August 2026"
+    },
+    "15": {
+      "A": 5.049067,
+      "display": "5.049067+",
+      "truncated": true,
+      "decimals": 6,
+      "exact_expr": null,
+      "status": "best_known",
+      "found_by": "Yanis Gomes",
+      "date": "September 2026"
+    },
+    "16": {
+      "A": 5.53706,
+      "display": "5.53706+",
+      "truncated": true,
+      "decimals": 5,
+      "exact_expr": null,
+      "status": "best_known",
+      "found_by": "Yanis Gomes",
+      "date": "August 2026"
+    },
+    "17": {
+      "A": 6.0,
+      "display": "6",
+      "truncated": false,
+      "decimals": 0,
+      "exact_expr": null,
+      "status": "trivial",
+      "found_by": null,
+      "date": null
+    },
+    "18": {
+      "A": 6.21796,
+      "display": "6.21796+",
+      "truncated": true,
+      "decimals": 5,
+      "exact_expr": null,
+      "status": "best_known",
+      "found_by": "Yanis Gomes",
+      "date": "September 2026"
+    },
+    "19": {
+      "A": 6.87498,
+      "display": "6.87498+",
+      "truncated": true,
+      "decimals": 5,
+      "exact_expr": null,
+      "status": "best_known",
+      "found_by": "Yanis Gomes",
+      "date": "August 2026"
+    },
+    "20": {
+      "A": 7.14732,
+      "display": "7.14732+",
+      "truncated": true,
+      "decimals": 5,
+      "exact_expr": null,
+      "status": "best_known",
+      "found_by": "Yanis Gomes",
+      "date": "September 2026"
+    },
+    "21": {
+      "A": 7.72489,
+      "display": "7.72489+",
+      "truncated": true,
+      "decimals": 5,
+      "exact_expr": null,
+      "status": "best_known",
+      "found_by": "Luna",
+      "date": "August 2026"
+    },
+    "22": {
+      "A": 8.05008,
+      "display": "8.05008+",
+      "truncated": true,
+      "decimals": 5,
+      "exact_expr": null,
+      "status": "best_known",
+      "found_by": "Yanis Gomes",
+      "date": "August 2026"
+    },
+    "23": {
+      "A": 8.53463,
+      "display": "8.53463+",
+      "truncated": true,
+      "decimals": 5,
+      "exact_expr": null,
+      "status": "best_known",
+      "found_by": "Luna",
+      "date": "August 2026"
+    },
+    "24": {
+      "A": 9.0,
+      "display": "9",
+      "truncated": false,
+      "decimals": 0,
+      "exact_expr": null,
+      "status": "trivial",
+      "found_by": null,
+      "date": null
+    },
+    "25": {
+      "A": 9.30077,
+      "display": "9.30077+",
+      "truncated": true,
+      "decimals": 5,
+      "exact_expr": null,
+      "status": "best_known",
+      "found_by": "Yanis Gomes",
+      "date": "September 2026"
+    },
+    "26": {
+      "A": 9.88822,
+      "display": "9.88822+",
+      "truncated": true,
+      "decimals": 5,
+      "exact_expr": null,
+      "status": "best_known",
+      "found_by": "Yanis Gomes",
+      "date": "September 2026"
+    },
+    "27": {
+      "A": 10.12802,
+      "display": "10.12802+",
+      "truncated": true,
+      "decimals": 5,
+      "exact_expr": null,
+      "status": "best_known",
+      "found_by": "Yanis Gomes",
+      "date": "September 2026"
+    },
+    "28": {
+      "A": 10.7327,
+      "display": "10.73270+",
+      "truncated": true,
+      "decimals": 5,
+      "exact_expr": null,
+      "status": "best_known",
+      "found_by": "Yanis Gomes",
+      "date": "September 2026"
+    },
+    "29": {
+      "A": 11.08218,
+      "display": "11.08218+",
+      "truncated": true,
+      "decimals": 5,
+      "exact_expr": null,
+      "status": "best_known",
+      "found_by": "Yanis Gomes",
+      "date": "August 2026"
+    },
+    "30": {
+      "A": 11.53483,
+      "display": "11.53483+",
+      "truncated": true,
+      "decimals": 5,
+      "exact_expr": null,
+      "status": "best_known",
+      "found_by": "Yanis Gomes",
+      "date": "August 2026"
+    },
+    "31": {
+      "A": 12.0,
+      "display": "12",
+      "truncated": false,
+      "decimals": 0,
+      "exact_expr": null,
+      "status": "trivial",
+      "found_by": null,
+      "date": null
+    },
+    "32": {
+      "A": 12.38271,
+      "display": "12.38271+",
+      "truncated": true,
+      "decimals": 5,
+      "exact_expr": null,
+      "status": "best_known",
+      "found_by": "Yanis Gomes",
+      "date": "August 2026"
+    },
+    "33": {
+      "A": 13.00524,
+      "display": "13.00524+",
+      "truncated": true,
+      "decimals": 5,
+      "exact_expr": null,
+      "status": "best_known",
+      "found_by": "Yanis Gomes",
+      "date": "August 2026"
+    },
+    "34": {
+      "A": 13.2729,
+      "display": "13.27290+",
+      "truncated": true,
+      "decimals": 5,
+      "exact_expr": null,
+      "status": "best_known",
+      "found_by": "Yanis Gomes",
+      "date": "August 2026"
+    },
+    "35": {
+      "A": 13.89432,
+      "display": "13.89432+",
+      "truncated": true,
+      "decimals": 5,
+      "exact_expr": null,
+      "status": "best_known",
+      "found_by": "Yanis Gomes",
+      "date": "August 2026"
+    },
+    "36": {
+      "A": 14.13555,
+      "display": "14.13555+",
+      "truncated": true,
+      "decimals": 5,
+      "exact_expr": null,
+      "status": "best_known",
+      "found_by": "Yanis Gomes",
+      "date": "August 2026"
+    },
+    "37": {
+      "A": 14.73354,
+      "display": "14.73354+",
+      "truncated": true,
+      "decimals": 5,
+      "exact_expr": null,
+      "status": "best_known",
+      "found_by": "Yanis Gomes",
+      "date": "August 2026"
+    },
+    "38": {
+      "A": 15.07607,
+      "display": "15.07607+",
+      "truncated": true,
+      "decimals": 5,
+      "exact_expr": null,
+      "status": "best_known",
+      "found_by": "Yanis Gomes",
+      "date": "August 2026"
+    },
+    "39": {
+      "A": 15.52552,
+      "display": "15.52552+",
+      "truncated": true,
+      "decimals": 5,
+      "exact_expr": null,
+      "status": "best_known",
+      "found_by": "Yanis Gomes",
+      "date": "August 2026"
+    },
+    "40": {
+      "A": 16.0,
+      "display": "16",
+      "truncated": false,
+      "decimals": 0,
+      "exact_expr": null,
+      "status": "trivial",
+      "found_by": null,
+      "date": null
+    },
+    "41": {
+      "A": 16.43745,
+      "display": "16.43745+",
+      "truncated": true,
+      "decimals": 5,
+      "exact_expr": null,
+      "status": "best_known",
+      "found_by": "Yanis Gomes",
+      "date": "August 2026"
+    },
+    "42": {
+      "A": 17.00233,
+      "display": "17.00233+",
+      "truncated": true,
+      "decimals": 5,
+      "exact_expr": null,
+      "status": "best_known",
+      "found_by": "Yanis Gomes",
+      "date": "August 2026"
+    },
+    "43": {
+      "A": 17.31048,
+      "display": "17.31048+",
+      "truncated": true,
+      "decimals": 5,
+      "exact_expr": null,
+      "status": "best_known",
+      "found_by": "Yanis Gomes",
+      "date": "August 2026"
+    },
+    "44": {
+      "A": 17.91437,
+      "display": "17.91437+",
+      "truncated": true,
+      "decimals": 5,
+      "exact_expr": null,
+      "status": "best_known",
+      "found_by": "Yanis Gomes",
+      "date": "August 2026"
+    },
+    "45": {
+      "A": 18.07909,
+      "display": "18.07909+",
+      "truncated": true,
+      "decimals": 5,
+      "exact_expr": null,
+      "status": "best_known",
+      "found_by": "Yanis Gomes",
+      "date": "August 2026"
+    },
+    "46": {
+      "A": 18.76651,
+      "display": "18.76651+",
+      "truncated": true,
+      "decimals": 5,
+      "exact_expr": null,
+      "status": "best_known",
+      "found_by": "Yanis Gomes",
+      "date": "August 2026"
+    },
+    "47": {
+      "A": 19.03829,
+      "display": "19.03829+",
+      "truncated": true,
+      "decimals": 5,
+      "exact_expr": null,
+      "status": "best_known",
+      "found_by": "Yanis Gomes",
+      "date": "August 2026"
+    },
+    "48": {
+      "A": 19.46566,
+      "display": "19.46566+",
+      "truncated": true,
+      "decimals": 5,
+      "exact_expr": null,
+      "status": "best_known",
+      "found_by": "Yanis Gomes",
+      "date": "August 2026"
+    },
+    "49": {
+      "A": 20.0,
+      "display": "20",
+      "truncated": false,
+      "decimals": 0,
+      "exact_expr": null,
+      "status": "trivial",
+      "found_by": null,
+      "date": null
+    },
+    "50": {
+      "A": 20.35492,
+      "display": "20.35492+",
+      "truncated": true,
+      "decimals": 5,
+      "exact_expr": null,
+      "status": "best_known",
+      "found_by": "Yanis Gomes",
+      "date": "August 2026"
+    }
+  }
+}

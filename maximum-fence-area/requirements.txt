@@ -1,0 +1,9 @@
+# Python 3.11. Top-level dependencies, pinned to the versions the harness was built and tested with.
+# The full transitive lock (incl. CUDA 13.0 runtime wheels pulled in by torch) is in requirements.lock.txt.
+torch==2.14.0
+numpy==2.4.6
+scipy==1.17.1
+mpmath==1.4.1
+pytest==9.1.1
+# only used by the optional `llm` mutation backend (never imported by the default `random` backend)
+anthropic==1.4.0
