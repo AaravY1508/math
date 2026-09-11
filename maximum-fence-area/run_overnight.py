@@ -8,11 +8,14 @@ What it does
   1. Hard precondition: runs the pytest suite. If anything fails, it writes
      ~/erich-friedman-BLOCKED.txt and exits without searching.
   2. Loads baselines.json (refuses a TODO placeholder) and checks the GPUs.
-  3. Splits the n-range across GPUs (priority-balanced; "best known" n are weighted
-     above the trivial grid cases and small n) and starts one worker process per GPU
-     with CUDA_VISIBLE_DEVICES=<gpu>. Each worker runs fence.evolve (island
-     MAP-Elites over proposer programs) + fence.optimize (GPU Adam, CPU SLSQP) +
-     the 50-digit referee, checkpointing every 5 minutes to runs/<ts>/worker<i>/.
+  3. Splits the n-range across GPUs, balanced by fence.evolve.schedule_weight ("best
+     known" n above the trivial grid cases and small n, n >= 32 highest, and an n whose
+     all-time record in the minima library is a grid-trivial tie barely at all), and
+     starts one worker process per GPU with CUDA_VISIBLE_DEVICES=<gpu>. Each worker runs
+     fence.evolve (island MAP-Elites over proposer programs) + fence.optimize (GPU Adam,
+     CPU SLSQP) + the 50-digit referee, checkpointing every 5 minutes to
+     runs/<ts>/worker<i>/, and records stabilized minima per proposer in the minima
+     library (--minima-dir, shared by all runs; see fence/minima.py).
   4. Supervises: a worker that dies or stops heart-beating is logged loudly and
      restarted from its last checkpoint; the other workers keep running.
   5. Exits hard at the wall-clock budget: workers stop taking new work near the end,
@@ -110,15 +113,34 @@ class Supervisor:
         return True
 
     # -- assignment -----------------------------------------------------------
+    def weight(self, n: int) -> float:
+        from fence.evolve import schedule_weight
+        return schedule_weight(n, self.baselines.get(n), self.records.get(n))
+
     def assign(self, ns: list[int]) -> list[list[int]]:
-        from fence.evolve import priority
         load = [0.0] * self.args.gpus
         slices = [[] for _ in range(self.args.gpus)]
-        for n in sorted(ns, key=lambda n: (-priority(n, self.baselines.get(n)), -n)):
+        for n in sorted(ns, key=lambda n: (-self.weight(n), -n)):
             g = min(range(self.args.gpus), key=lambda i: (load[i], len(slices[i])))
             slices[g].append(n)
-            load[g] += priority(n, self.baselines.get(n))
+            load[g] += self.weight(n)
         return [sorted(s) for s in slices]
+
+    def _minima_dir(self) -> Path | None:
+        a = self.args
+        if a.no_minima:
+            return None
+        if a.minima_dir:
+            return Path(os.path.expanduser(a.minima_dir)).resolve()
+        # a smoke run must not leave small-n minima in the library the real runs use
+        return self.run_dir / "minima" if a.smoke else HERE / "minima"
+
+    def _load_records(self, ns: list[int]) -> dict[int, float]:
+        if not self.minima_dir:
+            return {}
+        from fence.minima import MinimaLibrary
+        lib = MinimaLibrary(self.minima_dir)
+        return {n: float(rec["area"]) for n in ns if (rec := lib.record(n))}
 
     # -- workers ----------------------------------------------------------------
     def spawn(self, i: int, resume: bool):
@@ -128,7 +150,9 @@ class Supervisor:
                "--mutator", a.mutator, "--steps", str(a.steps), "--batch", str(a.batch),
                "--cpu-procs", str(a.cpu_procs), "--drain-seconds", str(self.drain),
                "--checkpoint-every", str(a.checkpoint_every), "--polish-iters", str(a.polish_iters),
-               "--job-timeout", str(a.job_timeout), "--tol", str(a.tol)]
+               "--job-timeout", str(a.job_timeout), "--tol", str(a.tol),
+               "--minima-dir", str(self.minima_dir or ""), "--stable-after", str(a.stable_after),
+               "--topology-cap", str(a.topology_cap)]
         if resume:
             cmd.append("--resume")
         # single-threaded BLAS in the worker and (inherited) in its CPU polish pool: the pool
@@ -171,16 +195,21 @@ class Supervisor:
         for n, a in bests.items():
             s = classify(a, self.baselines.get(n))
             counts[s] = counts.get(s, 0) + 1
-        evals = 0
+        evals = minima = 0
         for i in range(self.args.gpus):
             lp = self.run_dir / "logs" / f"worker{i}.jsonl"
             if lp.exists():
                 with open(lp, "rb") as fh:
-                    evals += sum(1 for ln in fh if b'"event": "eval"' in ln)
+                    for ln in fh:
+                        if b'"event": "eval"' in ln:
+                            evals += 1
+                        elif b'"event": "minimum_indexed"' in ln:
+                            minima += 1
         alive = sum(1 for p in self.procs.values() if p.poll() is None)
         el = time.time() - self.T0
         return (f"elapsed {int(el // 3600)}:{int(el % 3600 // 60):02d}  workers alive {alive}/{self.args.gpus}  "
-                f"evals {evals}  n with results {len(bests)}  status counts {counts}  restarts {sum(self.restarts.values())}")
+                f"evals {evals}  minima indexed {minima}  n with results {len(bests)}  status counts {counts}  "
+                f"restarts {sum(self.restarts.values())}")
 
     def sync_archive(self, final=False):
         if not self.archive:
@@ -194,6 +223,8 @@ class Supervisor:
         for f in ("run.json", "report.txt", "report.json"):
             if (self.run_dir / f).exists():
                 shutil.copy2(self.run_dir / f, dst / f)
+        if final and self.minima_dir and self.minima_dir.exists():
+            shutil.copytree(self.minima_dir, dst / "minima", dirs_exist_ok=True)   # snapshot of the library
         self.log({"event": "archive_sync", "dst": str(dst), "final": final})
 
     def save_runinfo(self):
@@ -212,15 +243,16 @@ class Supervisor:
             self.run_dir = Path(a.resume).resolve()
             old = json.loads((self.run_dir / "run.json").read_text())
             budget = parse_duration(a.budget) if a.budget_given else max(60.0, old["budget_s"] - old.get("elapsed_s", 0))
-            self.slices = old["slices"]
             self.prev_elapsed = old.get("elapsed_s", 0)
             resume = True
         else:
             stamp = time.strftime("%Y%m%d-%H%M%S") + ("-smoke" if a.smoke else "")
             self.run_dir = (HERE / "runs" / stamp).resolve()
             budget = parse_duration(a.budget)
-            self.slices = self.assign(ns)
             resume = False
+        self.minima_dir = self._minima_dir()
+        self.records = self._load_records(ns)
+        self.slices = old["slices"] if a.resume else self.assign(ns)
         (self.run_dir / "logs").mkdir(parents=True, exist_ok=True)
         self.log_fh = open(self.run_dir / "logs" / "supervisor.jsonl", "a")
         self.archive = Path(os.path.expanduser(a.archive_dir)).resolve() if a.archive_dir else None
@@ -238,7 +270,8 @@ class Supervisor:
                         "budget_s": budget if not a.resume else old["budget_s"], "session_budget_s": budget,
                         "deadline": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(self.T_end)),
                         "gpus": a.gpus, "slices": self.slices, "args": vars(a), "git_commit": commit,
-                        "supervisor_pid": os.getpid(), "gpu_info": self.gpu_info}
+                        "supervisor_pid": os.getpid(), "gpu_info": self.gpu_info,
+                        "minima_dir": str(self.minima_dir) if self.minima_dir else None}
         self.restarts = {i: 0 for i in range(a.gpus)}
         self.save_runinfo()
         self.log({"event": "supervisor_start", **self.runinfo},
@@ -246,6 +279,11 @@ class Supervisor:
                       f"{self.runinfo['deadline']}; GPUs {a.gpus}; mutator={a.mutator}")
         for i, s in enumerate(self.slices):
             print(f"  GPU {i}: n = {s}", flush=True)
+        if self.minima_dir:
+            from fence.evolve import trivial_tie
+            ties = [n for n in ns if trivial_tie(n, self.baselines.get(n), self.records.get(n))]
+            print(f"  minima library {self.minima_dir}: all-time records for {len(self.records)} n; "
+                  f"grid-trivial ties kept to a small share: {ties}", flush=True)
 
         self.procs, self.started, self.next_restart = {}, {}, {}
 
@@ -375,6 +413,14 @@ def main(argv=None):
     ap.add_argument("--max-restarts", type=int, default=25)
     ap.add_argument("--status-every", type=float, default=300.0)
     ap.add_argument("--archive-every", type=float, default=1800.0)
+    ap.add_argument("--minima-dir", default=None,
+                    help="minima library shared across runs (default: ./minima; a private one in the run dir with --smoke)")
+    ap.add_argument("--no-minima", action="store_true", help="neither record nor avoid minima")
+    ap.add_argument("--stable-after", type=int, default=6,
+                    help="evaluations of a proposer at n without improvement before its best new result "
+                         "is recorded as a minimum")
+    ap.add_argument("--topology-cap", type=int, default=3,
+                    help="re-propose a topology once its proposer has this many minima on it (0: never)")
     args = ap.parse_args(argv)
     args.budget_given = args.budget is not None
     if args.smoke:

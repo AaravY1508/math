@@ -6,6 +6,7 @@ import pytest
 
 from fence import builder as Bd
 from fence import geometry as G
+from fence import minima as M
 from fence import optimize as O
 
 torch = pytest.importorskip("torch")
@@ -74,3 +75,44 @@ def test_torch_lagrangian_gradients_finite():
     alm.w.fill_(100.0)
     alm.lagrangian(tt.residuals_t(Zt)).sum().backward()
     assert torch.isfinite(Zt.grad).all()
+
+
+def test_repulsion_distance_ignores_rigid_motions():
+    sk = Bd.build_from_genome(12, np.random.default_rng(1), {"seed": {"kind": "ring"}, "grow": {"inside_prob": 0.5}})
+    tt = G.TorchTopology(sk.topology(), dtype=torch.float64)
+    Y = sk.coords()
+    rep = O.Repulsion(tt, Y[None], O.OptConfig())
+    th = 1.1
+    R = np.array([[np.cos(th), -np.sin(th)], [np.sin(th), np.cos(th)]])
+    moved = [Y @ R.T + [2.0, -1.0], (Y * [-1.0, 1.0]) @ R.T, Y + 0.1]
+    far = Y + np.random.default_rng(0).normal(scale=0.3, size=Y.shape)
+    X = torch.as_tensor(np.stack(moved + [far], -1).transpose(0, 1, 2))        # [V, 2, B]
+    d2 = rep.rms2(X).amin(0)
+    assert torch.all(d2[:3] < 1e-10) and d2[3] > 1e-2
+    X.requires_grad_(True)
+    rep.penalty(X).sum().backward()
+    assert torch.isfinite(X.grad).all()
+
+
+def test_distinct_candidates_drop_known_areas():
+    pol = [{"ok": True, "area": a} for a in (4.0171387, 4.01713875, 3.9, 3.9 + 1e-12, 3.5)] + [{"ok": False}]
+    uniq, excluded = O.distinct_candidates(pol, exclude_areas=[4.0171387], eps=1e-6)
+    assert [round(p["area"], 6) for p in uniq] == [3.9, 3.5] and excluded == 2
+    assert len(O.distinct_candidates(pol)[0]) == 4
+
+
+def test_known_minimum_is_never_returned_again():
+    n, genome = 8, {"seed": {"kind": "ring"}, "grow": {"inside_prob": 0.6}}
+    sk = Bd.build_from_genome(n, np.random.default_rng(4), genome)
+    topo = sk.topology()
+    cfg = O.OptConfig(batch=128, steps=400, topk=4, verify_top=2, polish_iters=600)
+    first = O.optimize_topology(topo, sk.coords(), n, cfg, device="cpu", seed=0)
+    assert first["best"] is not None
+    known = first["best"]["config"]
+    X = np.array([[float(x), float(y)] for x, y in known["vertices"]])
+    form = M.canonical_form(topo)
+    avoid = M.avoid_images(form, [{"canon_coords": X[form.orders[0]]}])
+    again = O.optimize_topology(topo, sk.coords(), n, cfg, device="cpu", seed=0, avoid=avoid,
+                                exclude_areas=[first["best"]["area"]])
+    assert again["stats"]["avoid_images"] == len(avoid)
+    assert again["best"] is None or abs(again["best"]["area"] - first["best"]["area"]) > 1e-6

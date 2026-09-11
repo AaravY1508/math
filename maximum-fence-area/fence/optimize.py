@@ -59,6 +59,8 @@ class OptConfig:
     mem_cap_gb: float = 14.0     # hard cap for the GPU working set of one batch
     feas_gate: float = 5e-3      # max violation for a restart to be polished
     cross_radius: float = 1.6    # crossing penalty only for fence pairs this close in the sketch
+    avoid_height: float = 2.0    # repulsion from known minima: bump height, in units of area ...
+    avoid_sigma: float = 0.15    # ... and width, as RMS per-vertex distance after rigid alignment
 
 
 SAFETY = {"cross": 3.0, "order": 1.0, "turn": 0.3, "face_pos": 1.0}
@@ -150,6 +152,46 @@ class ALMState:
             lam.nan_to_num_(0.0, 0.0, 0.0).clamp_(-1e3, 1e3)
 
 
+class Repulsion:
+    """Steers restarts away from known minima of this topology (deflation).
+
+    Each known minimum, given in this topology's vertex labeling, adds a Gaussian bump of
+    height `avoid_height` to every restart's Lagrangian. Its argument is the RMS per-vertex
+    distance between the restart and the minimum after the best rotation, translation and
+    reflection, which in 2D has a closed form:
+        min |Xc - R Yc|^2 = |Xc|^2 + |Yc|^2 - 2 sqrt(<Xc, Yc>^2 + <Xc, Yc_perp>^2)
+    so the bump means the same thing however the optimizer happens to place the layout.
+    A restart that starts inside a known basin is pushed out of it while the constraints
+    are still soft; restarts elsewhere never feel it.
+    """
+
+    def __init__(self, tt, avoid, cfg: OptConfig):
+        torch = tt.torch
+        self.torch = torch
+        Y = torch.as_tensor(np.asarray(avoid, dtype=float), dtype=tt.dtype, device=tt.device)
+        Y = Y - Y.mean(1, keepdim=True)
+        mirror = torch.tensor([1.0, -1.0], dtype=tt.dtype, device=tt.device)
+        self.M = Y.shape[0]
+        self.Y = torch.cat([Y, Y * mirror], 0)                           # [2M, V, 2]
+        self.Yp = torch.stack([self.Y[..., 1], -self.Y[..., 0]], -1)     # each point turned by -90 degrees
+        self.syy = self.Y.pow(2).sum((1, 2))
+        self.V = tt.V
+        self.height = cfg.avoid_height
+        self.inv = 1.0 / (2.0 * cfg.avoid_sigma ** 2)
+
+    def rms2(self, X):
+        """[2M, B] squared aligned RMS distance of every restart (X is [V, 2, B]) to every image."""
+        Xc = X - X.mean(0, keepdim=True)
+        sxx = Xc.pow(2).sum((0, 1))
+        a = self.torch.einsum("vcb,mvc->mb", Xc, self.Y)
+        b = self.torch.einsum("vcb,mvc->mb", Xc, self.Yp)
+        return (sxx + self.syy[:, None] - 2.0 * (a * a + b * b + 1e-18).sqrt()).clamp_min(0.0) / self.V
+
+    def penalty(self, X):
+        """[B] repulsion added to each restart's Lagrangian."""
+        return self.height * self.torch.exp(-self.rms2(X) * self.inv).sum(0)
+
+
 def _schedule(cfg: OptConfig, step: int):
     frac = step / max(1, cfg.steps - 1)
     ramp = min(1.0, frac / cfg.anneal_frac)
@@ -159,7 +201,7 @@ def _schedule(cfg: OptConfig, step: int):
     return rho, w, lr
 
 
-def _run_adam(tt, Zt, alm: ALMState, cfg: OptConfig, use_graph: bool):
+def _run_adam(tt, Zt, alm: ALMState, cfg: OptConfig, use_graph: bool, rep: Repulsion | None = None):
     """Augmented-Lagrangian Adam on the batch-last parameter tensor Zt[P, B] (in place).
 
     On CUDA the step (forward, backward, NaN guard, Adam update) is captured once as
@@ -174,7 +216,10 @@ def _run_adam(tt, Zt, alm: ALMState, cfg: OptConfig, use_graph: bool):
 
     def body():
         r = tt.residuals_t(Zt)
-        loss = alm.lagrangian(r).sum()
+        lag = alm.lagrangian(r)
+        if rep is not None:
+            lag = lag + rep.penalty(tt.split_t(Zt)[0])
+        loss = lag.sum()
         loss.backward()
         Zt.grad.nan_to_num_(0.0, 0.0, 0.0)   # a diverged restart must not poison Adam state
         opt.step()
@@ -237,8 +282,14 @@ def max_violation_t(r):
     return mv
 
 
-def adam_stage(topo: G.Topology, coords0: np.ndarray, cfg: OptConfig, device="cuda", seed=0, log=None):
+def adam_stage(topo: G.Topology, coords0: np.ndarray, cfg: OptConfig, device="cuda", seed=0, log=None,
+               avoid: np.ndarray | None = None):
     """Run the batched augmented-Lagrangian Adam.
+
+    `avoid` [M, V, 2]: known minima of this topology in its vertex labeling
+    (fence.minima.avoid_images); restarts are repelled from them. Restarts can still
+    polish back into a known basin, so callers also drop polished candidates whose area
+    matches a known minimum (`distinct_candidates`).
 
     Returns (Z float64 [k, P] batch-first rows of the best distinct restarts, their
     areas, stats).
@@ -246,6 +297,7 @@ def adam_stage(topo: G.Topology, coords0: np.ndarray, cfg: OptConfig, device="cu
     import torch
 
     tt = G.TorchTopology(topo, device=device, dtype=torch.float32, coords0=coords0, cross_radius=cfg.cross_radius)
+    rep = Repulsion(tt, avoid, cfg) if avoid is not None and len(avoid) and cfg.avoid_height > 0 else None
     per = _bytes_per_restart(tt)
     B = int(max(64, min(cfg.batch, cfg.mem_cap_gb * 1e9 // per)))
     gen = torch.Generator(device=tt.device)
@@ -257,7 +309,7 @@ def adam_stage(topo: G.Topology, coords0: np.ndarray, cfg: OptConfig, device="cu
             Zt = init_batch(tt, coords0, B, cfg, gen).T.contiguous().requires_grad_(True)
             alm = ALMState(tt, B, Zt.dtype, Zt.device)
             try:
-                _run_adam(tt, Zt, alm, cfg, use_graph)
+                _run_adam(tt, Zt, alm, cfg, use_graph, rep)
             except torch.cuda.OutOfMemoryError:
                 raise
             except RuntimeError as exc:
@@ -269,7 +321,7 @@ def adam_stage(topo: G.Topology, coords0: np.ndarray, cfg: OptConfig, device="cu
                 use_graph = False
                 Zt = init_batch(tt, coords0, B, cfg, gen).T.contiguous().requires_grad_(True)
                 alm = ALMState(tt, B, Zt.dtype, Zt.device)
-                _run_adam(tt, Zt, alm, cfg, False)
+                _run_adam(tt, Zt, alm, cfg, False, rep)
             break
         except torch.cuda.OutOfMemoryError:
             Zt = alm = None
@@ -287,6 +339,8 @@ def adam_stage(topo: G.Topology, coords0: np.ndarray, cfg: OptConfig, device="cu
         ok = finite & (mv < cfg.feas_gate)
         stats = {"batch": B, "adam_s": round(time.time() - t0, 2), "feasible_frac": round(float(ok.float().mean()), 4),
                  "best_raw_area": float(torch.where(ok, area, torch.full_like(area, -1e9)).max())}
+        if rep is not None:
+            stats["avoid_images"] = rep.M
         idx = torch.nonzero(ok).flatten()
         if len(idx) == 0:
             return np.zeros((0, tt.n_params)), np.zeros(0), stats
@@ -494,6 +548,20 @@ def polish(topo_json: dict, z0: np.ndarray, iters: int = 1500, chunk: int = 100,
             "embedding_problems": problems[:3], "polish_s": round(time.time() - t0, 3)}
 
 
+def distinct_candidates(polished: list[dict], exclude_areas=(), eps: float = 1e-6) -> tuple[list[dict], int]:
+    """Successful polish results, best first, one per distinct area. A candidate whose area
+    matches `exclude_areas` (known minima of this topology) within `eps` is left out: on a
+    fixed topology that is the same minimum. Returns (candidates, number excluded)."""
+    good = sorted([p for p in polished if p.get("ok")], key=lambda p: -p["area"])
+    uniq, excluded = [], 0
+    for p in good:
+        if any(abs(p["area"] - a) <= eps for a in exclude_areas):
+            excluded += 1
+        elif all(abs(p["area"] - q["area"]) > 1e-9 for q in uniq):
+            uniq.append(p)
+    return uniq, excluded
+
+
 def verify_candidate(topo_json: dict, z: np.ndarray, n: int, tol: float) -> dict:
     """Referee check of a polished candidate (runs in a CPU pool worker)."""
     from fence.referee import verify
@@ -518,20 +586,20 @@ def pool_init():
 # ---------------------------------------------------------------------------
 
 def optimize_topology(topo: G.Topology, coords0, n: int, cfg: OptConfig | None = None, device="cpu",
-                      seed=0, pool=None) -> dict:
-    """Adam -> polish -> verify for one topology. Returns the best *verified* result."""
+                      seed=0, pool=None, avoid=None, exclude_areas=()) -> dict:
+    """Adam -> polish -> verify for one topology. Returns the best *verified* result.
+
+    avoid / exclude_areas: geometries and areas of known minima of this topology, which
+    the result must not be (see adam_stage and distinct_candidates)."""
     cfg = cfg or OptConfig()
-    Zs, As, stats = adam_stage(topo, coords0, cfg, device=device, seed=seed)
+    Zs, As, stats = adam_stage(topo, coords0, cfg, device=device, seed=seed, avoid=avoid)
     tj = topo.to_json()
     if pool is not None:
         pol = pool.starmap(polish, [(tj, z, cfg.polish_iters) for z in Zs])
     else:
         pol = [polish(tj, z, cfg.polish_iters) for z in Zs]
-    good = sorted([p for p in pol if p.get("ok")], key=lambda p: -p["area"])
-    uniq = []
-    for p in good:
-        if all(abs(p["area"] - q["area"]) > 1e-9 for q in uniq):
-            uniq.append(p)
+    good = [p for p in pol if p.get("ok")]
+    uniq, n_excluded = distinct_candidates(pol, exclude_areas)
     tops = uniq[: cfg.verify_top]
     if pool is not None:
         ver = pool.starmap(verify_candidate, [(tj, p["z"], n, cfg.tol) for p in tops])
@@ -540,7 +608,7 @@ def optimize_topology(topo: G.Topology, coords0, n: int, cfg: OptConfig | None =
     valid = [v for v in ver if v["valid"]]
     best = max(valid, key=lambda v: v["area"]) if valid else None
     return {"stats": stats, "n_polished_ok": len(good), "best": best, "adam_areas": [float(a) for a in As[:5]],
-            "polished_areas": [p["area"] for p in uniq[:5]],
+            "polished_areas": [p["area"] for p in uniq[:5]], "excluded_known": n_excluded,
             "polish_fail": [{k: v for k, v in p.items() if k not in ("z",)} for p in pol if not p.get("ok")][:3],
             "rejected": [v["summary"] for v in ver if not v["valid"]]}
 

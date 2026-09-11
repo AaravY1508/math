@@ -20,6 +20,24 @@ Modelled on OpenEvolve / ShinkaEvolve (LLM-guided program evolution):
               (incl. elites of n-1 / n+1 found by other GPUs), parameter jitter.
     llm    -- asks Claude to rewrite the program given its source and score history.
   The overnight runner uses `random` (zero API dependency).
+* Proposers: every program belongs to the lineage of the hand-written seed program it
+  descends from (`Program.proposer`, a content hash of the seed's source, so a lineage
+  keeps its id across runs). A child inherits its parent's proposer; a child re-seeded
+  from an elite joins the elite's lineage.
+* Minima library (fence.minima), shared by all runs:
+    - a proposer's search at n has *stabilized* when its best new result has not been
+      improved on by its next `--stable-after` evaluations at n. That result is indexed
+      as N<n>.<k> for the proposer, unless it already has that minimum (same topology,
+      area within 1e-6).
+    - each job is steered away from its proposer's known minima: a proposed topology the
+      proposer has exhausted (`--topology-cap` minima on it, or two steered attempts that
+      found nothing new) is re-proposed before any GPU time is spent; otherwise the Adam
+      restarts are repelled from the known minima of that topology, and polished results
+      that land on one anyway are not sent to the referee.
+    - a proposer whose search at n stabilizes on the grid-trivial answer (unit squares,
+      `is_grid_trivial`) is not mutated at n again, for as long as n's best is itself
+      grid-trivial; an n whose best ties a grid-trivial record keeps only a small share of
+      its worker's time, and below-record n >= LARGE_N get more.
 
 This module also contains the per-GPU worker (`python -m fence.evolve ...`),
 which the supervisor in run_overnight.py launches once per GPU.
@@ -28,6 +46,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import hashlib
 import json
 import math
 import multiprocessing as mp
@@ -50,6 +69,7 @@ import numpy as np
 
 from fence import builder as Bd
 from fence import geometry as G
+from fence import minima as Mn
 from fence import optimize as O
 
 HERE = Path(__file__).resolve().parent
@@ -91,6 +111,25 @@ def classify(area: float | None, base: dict | None) -> str:
     if area >= base["A"] - 1e-3:
         return "NEAR"
     return "BELOW"
+
+
+def lattice_max(n: int) -> int:
+    """Most unit squares that n unit fences enclose on the square lattice. A polyomino of
+    c cells has perimeter >= 2 ceil(2 sqrt(c)) (Harary-Harborth), so it needs at least
+    2c + ceil(2 sqrt(c)) fences. Equals the page's "trivial" records at 12, 17, 24, ..."""
+    c = 0
+    while 2 * (c + 1) + math.ceil(2 * math.sqrt(c + 1)) <= n:
+        c += 1
+    return c
+
+
+def is_grid_trivial(area: float | None, n: int) -> bool:
+    """A grid-of-unit-squares answer: an integer area no larger than lattice_max(n), which
+    is what the grid proposer gets (e.g. n=24 -> 9, n=50 -> 20)."""
+    if area is None:
+        return False
+    k = round(area)
+    return abs(area - k) <= 1e-9 and k <= lattice_max(n)
 
 
 # ---------------------------------------------------------------------------
@@ -159,6 +198,11 @@ def run_program_sandboxed(source: str, n: int, seed: int, timeout: float = 60.0)
     return Bd.Sketch.from_json(json.loads(out.stdout.strip().splitlines()[-1]))
 
 
+def proposer_id(source: str) -> str:
+    """Id of the lineage rooted at the program with this source."""
+    return hashlib.sha1(source.encode()).hexdigest()[:10]
+
+
 @dataclass
 class Program:
     pid: str
@@ -168,11 +212,14 @@ class Program:
     origin: str = "seed"
     generation: int = 0
     trusted: bool = True           # False for LLM-written code -> run sandboxed
+    proposer: str = ""             # lineage (see module docstring); "" only in old checkpoints
 
     @staticmethod
-    def from_genome(genome, parent=None, origin="seed", generation=0) -> "Program":
-        return Program(pid=uuid.uuid4().hex[:10], source=render_program(genome), genome=copy.deepcopy(genome),
-                       parent=parent, origin=origin, generation=generation)
+    def from_genome(genome, parent=None, origin="seed", generation=0, proposer=None) -> "Program":
+        """proposer=None makes the program the root of its own lineage."""
+        source = render_program(genome)
+        return Program(pid=uuid.uuid4().hex[:10], source=source, genome=copy.deepcopy(genome),
+                       parent=parent, origin=origin, generation=generation, proposer=proposer or proposer_id(source))
 
     def propose(self, n: int, seed: int) -> Bd.Sketch:
         if self.trusted:
@@ -266,10 +313,11 @@ class Archive:
     def best(self) -> Elite | None:
         return max(self.cells.values(), key=lambda e: e.fitness) if self.cells else None
 
-    def sample(self, rng: random.Random) -> Elite | None:
-        if not self.cells:
+    def sample(self, rng: random.Random, exclude=frozenset()) -> Elite | None:
+        """exclude: proposers whose elites must not be picked."""
+        el = [e for e in self.cells.values() if e.program.proposer not in exclude]
+        if not el:
             return None
-        el = list(self.cells.values())
         if rng.random() < 0.5:
             # fitness-biased tournament
             cand = rng.sample(el, min(3, len(el)))
@@ -333,7 +381,9 @@ class RandomMutator(Mutator):
     def mutate(self, parent: Program, ctx: dict) -> Program:
         r = self.rng
         n = ctx["n"]
-        g = copy.deepcopy(parent.genome) if parent.genome else copy.deepcopy(r.choice(seed_genomes(n)))
+        seeds = ctx.get("seeds") or seed_genomes(n)      # seed programs whose lineage may still be mutated
+        g = copy.deepcopy(parent.genome) if parent.genome else copy.deepcopy(r.choice(seeds))
+        proposer = parent.proposer
         elites = ctx.get("elite_sketches", [])
         ops = [("jitter", 0.25), ("add_edit", 0.12), ("remove_edit", 0.05), ("seed", 0.08), ("symmetry", 0.08),
                ("elite", 0.36 if elites else 0.0), ("fresh", 0.06)]
@@ -371,10 +421,13 @@ class RandomMutator(Mutator):
                  "edits": [r.choice(EDIT_OPS) for _ in range(r.choice([0, 1, 1, 2, 2, 3]))],
                  "origin_note": src["note"]}
             tag = f"elite:{src['note']}:{'+'.join(g['edits']) or 'reopt'}"
+            proposer = src.get("proposer") or parent.proposer    # the child is built from the elite's layout
         else:
-            g = copy.deepcopy(r.choice(seed_genomes(n)))
+            g = copy.deepcopy(r.choice(seeds))
             tag = "fresh"
-        return Program.from_genome(g, parent=parent.pid, origin=f"random:{tag}", generation=parent.generation + 1)
+            proposer = None                                       # a seed program again: its own lineage
+        return Program.from_genome(g, parent=parent.pid, origin=f"random:{tag}", generation=parent.generation + 1,
+                                   proposer=proposer)
 
 
 LLM_SYSTEM = """You are an expert in computational geometry and evolutionary program search.
@@ -476,7 +529,8 @@ class LLMMutator(Mutator):
         source = m.group(1)
         compile(source, "<llm-program>", "exec")   # syntax check only; execution is sandboxed
         return Program(pid=uuid.uuid4().hex[:10], source=source, genome=None, parent=parent.pid,
-                       origin=f"llm:{self.model}", generation=parent.generation + 1, trusted=False)
+                       origin=f"llm:{self.model}", generation=parent.generation + 1, trusted=False,
+                       proposer=parent.proposer)
 
 
 def make_mutator(kind: str, rng: random.Random, **kw) -> Mutator:
@@ -502,10 +556,19 @@ class NState:
     fails: int = 0
     history: list = field(default_factory=list)
     seeded: int = 0
+    # proposer -> {"best": best new result since its last stabilization, "stale": evaluations since}
+    epochs: dict = field(default_factory=dict)
+    # (proposer, topology signature) -> steered attempts on that topology that found nothing new
+    barren: dict = field(default_factory=dict)
 
     @property
     def base_A(self) -> float:
         return self.baseline["A"] if self.baseline else max(Bd.a_est(self.n), 0.5)
+
+
+LARGE_N = 32                # below-record n from here up get more time: the gaps to the records are largest there
+LARGE_N_WEIGHT = 1.5
+TRIVIAL_TIE_WEIGHT = 0.1    # remaining share of an n whose best already ties a grid-trivial record
 
 
 def priority(n: int, base: dict | None) -> float:
@@ -513,7 +576,20 @@ def priority(n: int, base: dict | None) -> float:
         return 0.5
     if n < 10:
         return 0.25
-    return 1.0 if base["status"] == "best_known" else 0.4
+    if base["status"] != "best_known":
+        return 0.4
+    return LARGE_N_WEIGHT if n >= LARGE_N else 1.0
+
+
+def trivial_tie(n: int, base: dict | None, best_area: float | None) -> bool:
+    """n's best is a grid-trivial answer that already ties the record (n = 12, 17, 24, ...)."""
+    return base is not None and is_grid_trivial(best_area, n) and classify(best_area, base) == "TIES"
+
+
+def schedule_weight(n: int, base: dict | None, best_area: float | None) -> float:
+    """Share of GPU time for n given its best area so far (this run or any earlier one)."""
+    w = priority(n, base)
+    return w * TRIVIAL_TIE_WEIGHT if trivial_tie(n, base, best_area) else w
 
 
 # ---------------------------------------------------------------------------
@@ -544,6 +620,11 @@ class Worker:
         self.last_ckpt = time.time()
         self.stop = False
         self._neighbor_cache = {}
+        self.lib = Mn.MinimaLibrary(args.minima_dir) if args.minima_dir else None
+        self.known: dict[int, dict[str, list[dict]]] = {}   # n -> proposer -> its indexed minima N<n>.<k>
+        self.trivial: dict[int, set[str]] = {}               # n -> proposers stabilized on the grid-trivial answer
+        self.records: dict[int, float | None] = {}           # n -> best verified area over all runs
+        self.roots: dict[str, tuple] = {}                    # proposer -> (genome, source) of its root program
         resumed = False
         if args.resume and self.ckpt_path.exists():
             resumed = self._load_checkpoint()
@@ -551,9 +632,10 @@ class Worker:
             if n not in self.state:
                 self.state[n] = NState(n=n, baseline=self.baselines.get(n),
                                        islands=[Archive() for _ in range(args.islands)])
+        self._load_library()
         self.mutator = make_mutator(args.mutator, self.rng)
         self.log({"event": "worker_start", "ns": self.ns, "resumed": resumed, "pid": os.getpid(),
-                  "deadline": self.deadline, "mutator": args.mutator})
+                  "deadline": self.deadline, "mutator": args.mutator, "minima_dir": args.minima_dir})
 
     # -- logging / persistence ---------------------------------------------
     def log(self, rec: dict):
@@ -562,7 +644,9 @@ class Worker:
             fh.write(json.dumps(rec, default=str) + "\n")
 
     def heartbeat(self):
-        self.hb_path.write_text(str(time.time()))
+        # atomic: the supervisor must never read a truncated (empty) heartbeat file, which it
+        # would take for a worker that has been silent since it was spawned
+        self._atomic_write(self.hb_path, str(time.time()).encode())
 
     def _atomic_write(self, path: Path, data: bytes):
         tmp = path.with_suffix(path.suffix + ".tmp")
@@ -589,50 +673,88 @@ class Worker:
             self.log({"event": "checkpoint_load_failed", "error": repr(exc)})
             return False
         self.state = {n: s for n, s in blob["state"].items() if n in self.ns}
+        for s in self.state.values():
+            # checkpoints written before lineages and minima were tracked
+            for name in ("epochs", "barren"):
+                if name not in s.__dict__:
+                    setattr(s, name, {})
+            for isl in s.islands:
+                for e in isl.cells.values():
+                    if not e.program.proposer:
+                        e.program.proposer = proposer_id(e.program.source)
         self.rng.setstate(blob["rng"])
         self.nprng.bit_generator.state = blob["nprng"]
         torch.set_rng_state(blob["torch_rng"])
         return True
 
+    def _load_library(self):
+        """Known minima, grid-trivial lineages and all-time records for this worker's n
+        (re-read from disk on every start, so a resumed worker sees what it indexed)."""
+        for n in self.ns:
+            rec = self.lib.record(n) if self.lib else None
+            self.known[n] = {p: [_slim(m) for m in ms] for p, ms in self.lib.minima(n).items()} if self.lib else {}
+            self.trivial[n] = self.lib.trivial_proposers(n) if self.lib else set()
+            self.records[n] = float(rec["area"]) if rec else None
+        if self.lib:
+            self.log({"event": "library_loaded", "dir": str(self.lib.root),
+                      "minima": {n: sum(map(len, self.known[n].values())) for n in self.ns},
+                      "trivial_lineages": {n: len(self.trivial[n]) for n in self.ns},
+                      "records": self.records})
+
     # -- scheduling ----------------------------------------------------------
+    def _n_best_area(self, n: int) -> float | None:
+        """Best verified area for n known to this worker: this run's, or the all-time record."""
+        st = self.state[n]
+        vals = [a for a in (st.best["area"] if st.best else None, self.records.get(n)) if a is not None]
+        return max(vals) if vals else None
+
+    def _blocked(self, n: int) -> set[str]:
+        """Lineages not to mutate at n: while n's best is the grid-trivial answer, a proposer
+        whose search already stabilized on it would only re-derive it."""
+        return self.trivial.get(n, set()) if is_grid_trivial(self._n_best_area(n), n) else set()
+
     def pick_n(self) -> int:
-        """Fair share of wall time weighted by priority, with a little randomness. An n whose
-        best is within 5% of the record gets up to 2x share: a small gain could beat it there."""
+        """Fair share of wall time weighted by schedule_weight, with a little randomness. An n
+        whose best is within 5% of the record gets up to 2x share: a small gain could beat it
+        there (not for a grid-trivial tie, which only a whole new structure can improve on)."""
         def score(n):
             s = self.state[n]
-            w = priority(n, s.baseline)
-            if s.best and s.baseline:
-                gap = max(0.0, (s.baseline["A"] - s.best["area"]) / s.baseline["A"])
+            best = self._n_best_area(n)
+            w = schedule_weight(n, s.baseline, best)
+            if best is not None and s.baseline and not trivial_tie(n, s.baseline, best):
+                gap = max(0.0, (s.baseline["A"] - best) / s.baseline["A"])
                 w *= 1.0 + max(0.0, 1.0 - gap / 0.05)
             return (s.time_spent + 5.0) / w * (0.85 + 0.3 * self.rng.random())
         return min(self.ns, key=score)
 
     def _elite_sketches(self, n: int) -> list[dict]:
         """Verified configurations usable as literal seeds: own archive + best of n-1, n, n+1
-        (the latter possibly found by another GPU; read from run_dir/best)."""
+        (the latter possibly found by another GPU; read from run_dir/best). Elites of
+        lineages blocked at n are left out."""
         out = []
         st = self.state[n]
+        blocked = self._blocked(n)
         for isl in st.islands:
             for e in sorted(isl.cells.values(), key=lambda e: -e.fitness)[:4]:
-                out.append({"sketch": _config_to_sketch(e.config), "note": f"n{n}:{e.area:.4f}"})
+                if e.program.proposer not in blocked:
+                    out.append({"sketch": _config_to_sketch(e.config), "note": f"n{n}:{e.area:.4f}",
+                                "proposer": e.program.proposer})
         for m in (n - 1, n + 1, n):
             p = self.run_dir / "best" / f"n{m:03d}.json"
             now = time.time()
             cached = self._neighbor_cache.get(m)
-            if cached and now - cached[0] < 60:
-                if cached[1]:
-                    out.append(cached[1])
-                continue
-            item = None
-            if p.exists():
-                try:
-                    cfg = json.loads(p.read_text())
-                    item = {"sketch": _config_to_sketch(cfg), "note": f"n{m}:{float(cfg['verification']['total_area']):.4f}"}
-                except Exception:  # noqa: BLE001
-                    item = None
-            self._neighbor_cache[m] = (now, item)
-            if item:
-                out.append(item)
+            if not (cached and now - cached[0] < 60):
+                item = None
+                if p.exists():
+                    try:
+                        cfg = json.loads(p.read_text())
+                        item = {"sketch": _config_to_sketch(cfg), "proposer": cfg.get("proposer"),
+                                "note": f"n{m}:{float(cfg['verification']['total_area']):.4f}"}
+                    except Exception:  # noqa: BLE001
+                        item = None
+                cached = self._neighbor_cache[m] = (now, item)
+            if cached[1] and cached[1]["proposer"] not in blocked:
+                out.append(cached[1])
         return out
 
     # -- one evaluation, split into GPU part + asynchronous CPU parts --------------
@@ -640,17 +762,32 @@ class Worker:
         st = self.state[n]
         isl_idx = (st.evals + len(self.pending)) % len(st.islands)
         isl = st.islands[isl_idx]
-        seeds = seed_genomes(n)
+        blocked = self._blocked(n)
+        seeds = [Program.from_genome(g, origin=f"seed:{k}") for k, g in enumerate(seed_genomes(n))]
+        open_seeds = [p for p in seeds if p.proposer not in blocked]
+        child = None
         # every island first evaluates the hand-written seed programs (spread over islands),
-        # later a fresh seed program is injected now and then to keep diversity
-        if st.seeded < len(seeds) or len(isl) == 0 or self.rng.random() < 0.04:
-            k = st.seeded % len(seeds)
-            child = Program.from_genome(seeds[k], origin=f"seed:{k}")
-            st.seeded += 1
-        else:
-            parent_e = isl.sample(self.rng)
-            parent = parent_e.program if parent_e else Program.from_genome(self.rng.choice(seeds))
+        # later a fresh seed program is injected now and then to keep diversity; seeds of
+        # blocked lineages are skipped
+        if open_seeds and (st.seeded < len(seeds) or len(isl) == 0 or self.rng.random() < 0.04):
+            while child is None:
+                cand = seeds[st.seeded % len(seeds)]
+                st.seeded += 1
+                if cand.proposer not in blocked:
+                    child = cand
+        if child is None:
+            parent_e = isl.sample(self.rng, exclude=blocked)
+            for other in st.islands:           # this island may hold only blocked lineages
+                if parent_e is not None:
+                    break
+                parent_e = other.sample(self.rng, exclude=blocked)
+            if parent_e is None and not open_seeds:
+                st.time_spent += 30.0          # nothing left to evolve at n: let the scheduler move on
+                self.log({"event": "n_exhausted", "n": n, "blocked": sorted(blocked)})
+                return None
+            parent = parent_e.program if parent_e else self.rng.choice(open_seeds)
             ctx = {"n": n, "elite_sketches": self._elite_sketches(n), "history": st.history,
+                   "seeds": [p.genome for p in open_seeds],
                    "baseline": st.baseline["display"] if st.baseline else None,
                    "best_area": st.best["area"] if st.best else None,
                    "parent_fitness": parent_e.fitness if parent_e else None}
@@ -659,13 +796,12 @@ class Worker:
             except MutationError as exc:
                 self.log({"event": "mutation_error", "n": n, "error": str(exc)[:300]})
                 child = RandomMutator(self.rng).mutate(parent, ctx)
+        if child.proposer == proposer_id(child.source):
+            self.roots.setdefault(child.proposer, (child.genome, child.source))
         seed = int(self.nprng.integers(2 ** 31))
         t0 = time.time()
         try:
-            sk = child.propose(n, seed)
-            topo = sk.topology()
-            if topo.n != n:
-                raise Bd.BuildError(f"program returned {topo.n} fences")
+            child, sk, topo, form, known, rerolls = self._propose(n, child, seed)
         except Exception as exc:  # noqa: BLE001 -- a broken program is just an unfit program
             st.fails += 1
             st.time_spent += time.time() - t0
@@ -673,12 +809,61 @@ class Worker:
                       "error": f"{type(exc).__name__}: {str(exc)[:200]}"})
             return None
         return {"n": n, "island": isl_idx, "program": child, "sketch": sk, "topo": topo, "seed": seed,
+                "sig": form.signature if form else None, "known": known, "rerolls": rerolls,
+                "avoid": Mn.avoid_images(form, known) if known else None,
                 "t0": t0, "t_build": time.time() - t0}
+
+    # -- steering away from known minima ---------------------------------------------
+    @staticmethod
+    def _build(n: int, prog: Program, seed: int):
+        sk = prog.propose(n, seed)
+        topo = sk.topology()
+        if topo.n != n:
+            raise Bd.BuildError(f"program returned {topo.n} fences")
+        return sk, topo
+
+    def _known_on(self, n: int, proposer: str, topo: G.Topology):
+        """(canonical form of topo, the proposer's indexed minima on that same topology)."""
+        try:
+            form = Mn.canonical_form(topo)
+        except G.InvalidTopology:
+            return None, []
+        return form, [m for m in self.known[n].get(proposer, []) if m["signature"] == form.signature]
+
+    def _exhausted(self, n: int, proposer: str, sig: str, known: list) -> bool:
+        cap = self.args.topology_cap
+        return cap > 0 and (len(known) >= cap or self.state[n].barren.get((proposer, sig), 0) >= 2)
+
+    def _propose(self, n: int, child: Program, seed: int):
+        """Build the child's sketch and find its proposer's known minima on that topology.
+
+        A topology the proposer has exhausted gets up to two re-proposals (a new rng seed,
+        plus one more structural edit for genome programs) before any GPU time is spent on
+        it. Otherwise the GPU stage is steered away from the known minima (job["avoid"]).
+        """
+        sk, topo = self._build(n, child, seed)
+        form, known = self._known_on(n, child.proposer, topo)
+        rerolls = 0
+        while form is not None and self._exhausted(n, child.proposer, form.signature, known) and rerolls < 2:
+            rerolls += 1
+            cand = child
+            if child.genome is not None:
+                g = copy.deepcopy(child.genome)
+                g.setdefault("edits", []).append(self.rng.choice(EDIT_OPS))
+                cand = Program.from_genome(g, parent=child.parent, origin=f"{child.origin}+novel",
+                                           generation=child.generation, proposer=child.proposer)
+            try:
+                sk2, topo2 = self._build(n, cand, int(self.nprng.integers(2 ** 31)))
+            except Exception:  # noqa: BLE001 -- keep the previous proposal
+                continue
+            child, sk, topo = cand, sk2, topo2
+            form, known = self._known_on(n, child.proposer, topo)
+        return child, sk, topo, form, known, rerolls
 
     def run_gpu(self, job: dict, cfg: O.OptConfig):
         t = time.time()
         Zs, As, stats = O.adam_stage(job["topo"], job["sketch"].coords(), cfg, device="cuda",
-                                     seed=job["seed"], log=self.log)
+                                     seed=job["seed"], log=self.log, avoid=job.get("avoid"))
         job["adam"] = stats
         job["t_gpu"] = time.time() - t
         job["cfg"] = cfg
@@ -703,11 +888,12 @@ class Worker:
                             res.append(f.get(0))
                         except Exception as exc:  # noqa: BLE001
                             res.append({"ok": False, "error": repr(exc)})
-                    good = sorted([p for p in res if p.get("ok")], key=lambda p: -p["area"])
-                    uniq = []
-                    for p in good:
-                        if all(abs(p["area"] - q["area"]) > 1e-9 for q in uniq):
-                            uniq.append(p)
+                    good = [p for p in res if p.get("ok")]
+                    # results that polished back into a known minimum of this topology are not new
+                    # (looked up now, not at proposal time: the proposer may have stabilized since)
+                    known = [m["area"] for m in self.known[job["n"]].get(job["program"].proposer, [])
+                             if m["signature"] == job.get("sig")]
+                    uniq, job["excluded_known"] = O.distinct_candidates(res, known, Mn.MINIMUM_EPS)
                     job["polished"] = [round(p["area"], 8) for p in uniq[:5]]
                     job["n_polish_ok"] = len(good)
                     cfg = job["cfg"]
@@ -765,10 +951,15 @@ class Worker:
         st.time_spent += elapsed
         area = best["area"] if best else None
         fitness = (area / st.base_A) if area else 0.0
+        sig = job.get("sig")
+        known = job.get("known", [])
+        dup = self._dup_of(n, prog.proposer, sig, area)
         rec = {"event": "eval", "n": n, "island": job["island"], "program": prog.pid, "parent": prog.parent,
-               "origin": prog.origin, "generation": prog.generation, "area": area, "fitness": round(fitness, 6),
-               "verified": bool(best), "status": classify(area, st.baseline),
-               "faces": len(job["topo"].faces), "tjunctions": len(job["topo"].pins),
+               "origin": prog.origin, "generation": prog.generation, "proposer": prog.proposer, "area": area,
+               "fitness": round(fitness, 6), "verified": bool(best), "status": classify(area, st.baseline),
+               "faces": len(job["topo"].faces), "tjunctions": len(job["topo"].pins), "signature": sig,
+               "known_on_topology": len(known), "rerolls": job.get("rerolls", 0),
+               "excluded_known": job.get("excluded_known", 0), "dup_of": dup,
                "polished": job.get("polished"), "polish_ok": job.get("n_polish_ok"), "adam": job.get("adam"),
                "t_build": round(job["t_build"], 2), "t_gpu": round(job.get("t_gpu", 0), 2), "t_total": round(elapsed, 2),
                "rejected": [v.get("summary", "")[:160] for v in vers if not v.get("valid")][:2]}
@@ -776,6 +967,10 @@ class Worker:
         st.history.append({"generation": prog.generation, "origin": prog.origin, "area": area,
                            "fitness": round(fitness, 5)})
         st.history = st.history[-300:]
+        if known and (best is None or dup is not None):
+            # a steered attempt on a known topology that found nothing new
+            st.barren[(prog.proposer, sig)] = st.barren.get((prog.proposer, sig), 0) + 1
+        self._track_epoch(n, prog, area, best["config"] if best else None, sig, dup)
         if not best:
             return
         cfg = best["config"]
@@ -795,22 +990,114 @@ class Worker:
                     st.islands[(i + 1) % len(st.islands)].try_insert(copy.copy(b))
             self.log({"event": "migration", "n": n})
         if st.best is None or area > st.best["area"] + 1e-12:
-            status = classify(area, st.baseline)
-            st.best = {"area": area, "config": cfg, "program": prog.pid, "source": prog.source, "origin": prog.origin,
-                       "status": status, "time": time.time(), "features": feats}
-            cfg_out = {**cfg, "status": status, "baseline": st.baseline, "found_by_program": prog.pid,
-                       "program_origin": prog.origin, "found_at": time.strftime("%Y-%m-%dT%H:%M:%S")}
-            self._atomic_write(self.run_dir / "best" / f"n{n:03d}.json", json.dumps(cfg_out, indent=1).encode())
-            (self.wdir / "programs").mkdir(exist_ok=True)
-            (self.wdir / "programs" / f"n{n:03d}_best.py").write_text(prog.source)
-            self.log({"event": "new_best", "n": n, "area": area, "status": status,
-                      "baseline": st.baseline["A"] if st.baseline else None, "program": prog.pid})
-            if status == "BEATS":
-                name = f"n{n:03d}_{area:.8f}.json"
-                self._atomic_write(self.run_dir / "improvements" / name, json.dumps(cfg_out, indent=1).encode())
-                self.log({"event": "IMPROVEMENT", "n": n, "area": area, "baseline": st.baseline["A"],
-                          "delta": area - st.baseline["A"], "verified": True, "referee_dps": ver["dps"],
-                          "file": f"improvements/{name}"})
+            self._new_best(n, prog, area, cfg, feats, sig)
+
+    def _saved_best(self, n: int) -> dict | None:
+        """This run's saved best configuration for n, re-read from disk (None if absent)."""
+        try:
+            cfg = json.loads((self.run_dir / "best" / f"n{n:03d}.json").read_text())
+            float(cfg["verification"]["total_area"])
+            return cfg
+        except (OSError, ValueError, KeyError, TypeError):
+            return None
+
+    def _new_best(self, n: int, prog: Program, area: float, cfg: dict, feats: dict, sig: str | None):
+        st = self.state[n]
+        saved = self._saved_best(n)
+        if saved is not None and area <= float(saved["verification"]["total_area"]) + 1e-12:
+            # st.best came from a checkpoint (up to checkpoint_every old) when this worker was
+            # restarted, and the saved file holds a better result found after it. Keep the
+            # file and adopt its value, so the stale one is not compared against again.
+            a = float(saved["verification"]["total_area"])
+            st.best = {"area": a, "config": saved, "program": saved.get("found_by_program"), "source": None,
+                       "origin": saved.get("program_origin"), "status": classify(a, st.baseline),
+                       "time": time.time(), "features": None}
+            self.log({"event": "best_kept", "n": n, "area": area, "saved_area": a})
+            return
+        status = classify(area, st.baseline)
+        st.best = {"area": area, "config": cfg, "program": prog.pid, "source": prog.source, "origin": prog.origin,
+                   "status": status, "time": time.time(), "features": feats}
+        cfg_out = {**cfg, "status": status, "baseline": st.baseline, "found_by_program": prog.pid,
+                   "program_origin": prog.origin, "proposer": prog.proposer, "signature": sig,
+                   "found_at": time.strftime("%Y-%m-%dT%H:%M:%S")}
+        self._atomic_write(self.run_dir / "best" / f"n{n:03d}.json", json.dumps(cfg_out, indent=1).encode())
+        (self.wdir / "programs").mkdir(exist_ok=True)
+        (self.wdir / "programs" / f"n{n:03d}_best.py").write_text(prog.source)
+        self.log({"event": "new_best", "n": n, "area": area, "status": status,
+                  "baseline": st.baseline["A"] if st.baseline else None, "program": prog.pid})
+        try:
+            if self.lib and self.lib.update_record(n, cfg_out, {"run": self.run_dir.name, "proposer": prog.proposer}):
+                self.records[n] = area
+                self.log({"event": "new_record", "n": n, "area": area})
+        except OSError as exc:
+            self.log({"event": "library_error", "n": n, "error": repr(exc)[:300]})
+        if status == "BEATS":
+            name = f"n{n:03d}_{area:.8f}.json"
+            self._atomic_write(self.run_dir / "improvements" / name, json.dumps(cfg_out, indent=1).encode())
+            self.log({"event": "IMPROVEMENT", "n": n, "area": area, "baseline": st.baseline["A"],
+                      "delta": area - st.baseline["A"], "verified": True,
+                      "referee_dps": cfg["verification"]["dps"], "file": f"improvements/{name}"})
+
+    # -- minima library -------------------------------------------------------------
+    def _dup_of(self, n: int, proposer: str, sig: str | None, area: float | None) -> str | None:
+        """Name of the proposer's indexed minimum this result re-converged to, if any."""
+        if sig is None or area is None:
+            return None
+        return next((m["name"] for m in self.known[n].get(proposer, []) if Mn.same_minimum(m, sig, area)), None)
+
+    def _track_epoch(self, n: int, prog: Program, area, cfg, sig, dup):
+        """Detect stabilization: a proposer's best new result at n that its next stable_after
+        evaluations at n did not improve on (by more than MINIMUM_EPS). Results that are
+        already indexed minima never count as new; failed evaluations count as not improving."""
+        if not self.lib:
+            return
+        st = self.state[n]
+        ep = st.epochs.setdefault(prog.proposer, {"best": None, "stale": 0})
+        if area is not None and dup is None and (ep["best"] is None or area > ep["best"]["area"] + Mn.MINIMUM_EPS):
+            ep["best"] = {"area": area, "config": cfg, "program": prog.pid, "origin": prog.origin,
+                          "found_at": time.strftime("%Y-%m-%dT%H:%M:%S")}
+            ep["stale"] = 0
+            return
+        ep["stale"] += 1
+        if ep["best"] is not None and ep["stale"] >= self.args.stable_after:
+            st.epochs[prog.proposer] = {"best": None, "stale": 0}
+            try:
+                self._stabilized(n, prog.proposer, ep["best"])
+            except Exception as exc:  # noqa: BLE001 -- the library must never stop the search
+                self.log({"event": "library_error", "n": n, "error": repr(exc)[:300],
+                          "trace": traceback.format_exc()[-1500:]})
+
+    def _stabilized(self, n: int, proposer: str, best: dict):
+        meta = {"run": self.run_dir.name, "program": best["program"], "origin": best["origin"],
+                "found_at": best["found_at"], "stable_after": self.args.stable_after}
+        self._register_proposer(n, proposer)
+        if is_grid_trivial(best["area"], n):
+            self.lib.mark_trivial(proposer, n, best["config"], meta)
+            self.trivial[n].add(proposer)
+            self.log({"event": "minimum_trivial", "n": n, "proposer": proposer, "area": best["area"]})
+            return
+        topo, coords = G.config_from_json(best["config"])
+        form = Mn.canonical_form(topo)
+        new, doc = self.lib.add_minimum(proposer, n, best["config"], form.signature, coords[form.orders[0]], meta)
+        if new:
+            self.known[n].setdefault(proposer, []).append(_slim(doc))
+            self.log({"event": "minimum_indexed", "n": n, "proposer": proposer, "name": doc["name"],
+                      "area": doc["area"], "signature": form.signature})
+        else:
+            self.log({"event": "minimum_duplicate", "n": n, "proposer": proposer, "of": doc["name"],
+                      "area": best["area"]})
+
+    def _register_proposer(self, n: int, proposer: str):
+        """Save the lineage's root program next to its minima (roots are seed programs)."""
+        root = self.roots.get(proposer)
+        if root is None:           # e.g. created before a restart: look among the seed programs
+            root = (None, None)
+            for m in (n, n - 1, n + 1):
+                for g in seed_genomes(m):
+                    source = render_program(g)
+                    if proposer_id(source) == proposer:
+                        root = (g, source)
+        self.lib.register_proposer(proposer, *root)
 
     # -- main loop -----------------------------------------------------------
     def _new_pool(self, terminate_old=False):
@@ -885,12 +1172,17 @@ class Worker:
         self.log({"event": "signal", "signum": signum})
 
 
+def _slim(minimum: dict) -> dict:
+    """What steering needs of an indexed minimum (its full configuration stays on disk)."""
+    return {k: minimum[k] for k in ("name", "k", "area", "signature", "canon_coords")}
+
+
 def _config_to_sketch(cfg: dict) -> dict:
     topo, coords = G.config_from_json(cfg)
     return Bd.Sketch.from_config(topo, coords).to_json()
 
 
-def worker_main(argv=None):
+def worker_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description="one GPU worker of the overnight search")
     ap.add_argument("--gpu", type=int, required=True, help="logical id (CUDA_VISIBLE_DEVICES is set by the supervisor)")
     ap.add_argument("--ns", required=True, help="comma-separated n values for this worker")
@@ -913,8 +1205,17 @@ def worker_main(argv=None):
     ap.add_argument("--job-timeout", type=float, default=600.0)
     ap.add_argument("--checkpoint-every", type=float, default=300.0)
     ap.add_argument("--drain-seconds", type=float, default=90.0)
-    args = ap.parse_args(argv)
-    Worker(args).run()
+    ap.add_argument("--minima-dir", default="", help="minima library shared across runs (empty: off)")
+    ap.add_argument("--stable-after", type=int, default=6,
+                    help="a proposer's best new result at n is a stabilized minimum after this many "
+                         "evaluations of that proposer at n without improvement")
+    ap.add_argument("--topology-cap", type=int, default=3,
+                    help="re-propose a topology once its proposer has this many minima on it (0: never)")
+    return ap
+
+
+def worker_main(argv=None):
+    Worker(worker_parser().parse_args(argv)).run()
 
 
 if __name__ == "__main__":

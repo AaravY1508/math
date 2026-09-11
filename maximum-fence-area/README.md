@@ -31,11 +31,13 @@ fence/referee.py    verify(config, tol): independent 50-digit mpmath referee (st
 fence/builder.py    sketch DSL used by evolved proposer programs (seeds, cell growth, symmetry, edits)
 fence/optimize.py   Stage 3: batched GPU Adam (augmented Lagrangian) -> CPU SLSQP polish -> referee
 fence/evolve.py     Stage 4: island MAP-Elites over propose_topology programs; per-GPU worker
+fence/minima.py     Stage 5: per-proposer library of distinct minima kept across runs; topology signatures
 tests/              validation gate (must pass before any search starts)
 baselines.json      best-known areas scraped from the page
 run_overnight.py    supervisor: preflight tests, GPU sharding, restarts, checkpoints, final report
 report.py           table n | best_known | ours | delta | verified, plus SVG renderings
 runs/<timestamp>/   checkpoints, logs, best configs (gitignored)
+minima/             the minima library shared by all runs (gitignored; snapshot archived per run)
 ```
 
 ## Setup (Python 3.11)
@@ -68,6 +70,10 @@ tail -f runs/launch.log
 
 # continue after a crash (remaining budget, from the last checkpoints)
 ./venv/bin/python run_overnight.py --resume runs/<timestamp>
+
+# minima library: seed it from a run made before it existed, and inspect it
+./venv/bin/python -m fence.minima import-run runs/<timestamp>
+./venv/bin/python -m fence.minima summary
 ```
 
 Main `run_overnight.py` flags:
@@ -82,6 +88,10 @@ Main `run_overnight.py` flags:
 | `--steps` | Adam steps per topology (default 1000). |
 | `--mutator` | `random` (default, no API) or `llm`. |
 | `--resume RUN_DIR` | Restart workers from their checkpoints. |
+| `--minima-dir` | Minima library shared by all runs (default `minima/`; `--smoke` uses a private one in its run dir). |
+| `--no-minima` | Neither record nor avoid minima. |
+| `--stable-after` | Evaluations of a proposer at n without improvement before its best new result counts as a stabilized minimum (default 6). |
+| `--topology-cap` | Re-propose a topology once its proposer has this many minima on it (default 3; 0 = never). |
 
 ## How it works
 
@@ -193,12 +203,59 @@ programs run in a sandboxed subprocess with a timeout. Credentials come from the
 Anthropic SDK's standard resolution: `ANTHROPIC_API_KEY` or an `ant auth login`
 profile. Nothing is stored.
 
+### Stage 5: minima library
+
+Every program belongs to a **proposer**: the lineage of the hand-written seed
+program it descends from. The proposer id is a hash of that seed program's source,
+so a lineage keeps its id across runs. A child inherits its parent's proposer, and
+a child re-seeded from an elite joins the elite's lineage.
+
+- **Stabilized minima.** A proposer's search at n has stabilized when its best new
+  result is not improved on by its next `--stable-after` evaluations at n. That
+  result is saved as `minima/proposers/<proposer>/N<n>.<k>.json`, where k counts
+  that proposer's distinct minima at n from 0. Two minima are the same when their
+  layout topology matches and their areas agree within 1e-6. A duplicate is never
+  indexed.
+- **Topology signature.** A canonical code of the plane graph together with its
+  split into fences, so a T-junction differs from a joint. It does not change under
+  relabeling, rigid motion, or reflection. It is read off the face cycles, so a
+  sketch and the optimized configuration built on it always share one signature.
+- **Steering.** Before any GPU time is spent, a job looks up its proposer's minima
+  on the proposed topology:
+  - An exhausted topology (`--topology-cap` minima on it, or two steered attempts
+    that found nothing new) is re-proposed, with a new seed plus one more
+    structural edit.
+  - Otherwise the Adam restarts are repelled from those minima. Each minimum, in
+    every relabeling the topology's symmetries allow, gets a Gaussian bump in the
+    RMS vertex distance after the best rigid alignment (closed form in 2D).
+  - A restart can still polish back into a known basin, so polished candidates
+    whose area matches a known minimum of the topology never reach the referee.
+
+  Tuned on the first run's minima: on topologies with several basins (n = 26, 30,
+  44) the repulsion raised the number of novel minima per job from 0–2 to 1–8. On
+  single-basin topologies (n = 13, 18) there is nothing new to find, and the
+  re-proposal handles those.
+- **Grid-trivial answers.** An integer area no larger than `lattice_max(n)` is what
+  the grid proposer gets. `lattice_max(n)` is the most unit squares n fences can
+  enclose: c cells need 2c + ⌈2√c⌉ fences. A proposer whose search at n stabilizes
+  on such an answer gets `N<n>.trivial.json`, and is not mutated at n again while
+  n's best is itself grid-trivial.
+- **Records.** `minima/records/N<n>.json` holds the best verified configuration for
+  n over all runs, so scheduling knows each n's standing from the first minute.
+  `import-run` builds records from a run made before the library existed.
+
 ### Overnight runner
 
-Each GPU worker handles a disjoint slice of n, balanced by priority. Best-known
-("+") entries are weighted above the trivial grids, and small n are excluded by
-default. Within a worker, time is shared fairly by priority, and n within 5% of
-the record get up to 2× share.
+Each GPU worker handles a disjoint slice of n, balanced by the same weights it
+schedules with:
+- Best-known ("+") entries are weighted above the trivial grids, and small n are
+  excluded by default.
+- Best-known n ≥ 32 get 1.5× (the gaps to the records are largest there).
+- An n whose best (this run or the library record) is a grid-trivial tie with the
+  record keeps 10% of its share. Only a whole new structure could improve it.
+
+Within a worker, time is shared fairly by these weights, and n within 5% of the
+record get up to 2× share.
 
 Operational behavior:
 - **Logging:** each worker writes JSONL to `runs/<ts>/logs/worker<i>.jsonl`, with
@@ -206,9 +263,14 @@ Operational behavior:
 - **Checkpoints:** every 5 minutes to `runs/<ts>/worker<i>/checkpoint.pkl`,
   covering populations, bests, and RNG states.
 - **Best configs:** written to `runs/<ts>/best/n<NNN>.json` whenever they improve.
+  The saved file is re-read right before each write. A worker restarted from an
+  older checkpoint therefore never replaces a better result found after that
+  checkpoint.
 - **Crash or hang:** the supervisor logs it loudly and restarts that worker from
   its checkpoint while the others keep running. Crash recovery was tested by
-  SIGKILLing a worker mid-run.
+  SIGKILLing a worker mid-run. Heartbeats are written atomically. In the first
+  run, the supervisor read half-written (empty) heartbeat files and killed 5
+  healthy workers.
 - **Wedged GPU:** after 5 consecutive GPU errors a worker exits deliberately so
   it is restarted with a fresh CUDA context.
 
