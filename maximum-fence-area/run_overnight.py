@@ -106,9 +106,14 @@ class Supervisor:
         except Exception as exc:  # noqa: BLE001
             write_blocked("nvidia-smi failed", repr(exc))
             return False
-        if len(gpus) < self.args.gpus:
-            write_blocked(f"asked for {self.args.gpus} GPUs but nvidia-smi lists {len(gpus)}", "\n".join(gpus))
+        missing = [g for g in self.args.gpu_ids if g >= len(gpus)]
+        if missing:
+            write_blocked(f"asked for GPUs {missing} but nvidia-smi lists {len(gpus)}", "\n".join(gpus))
             return False
+        busy = [ln for ln in gpus if int(ln.split(",")[0]) in self.args.gpu_ids
+                and int(ln.split(",")[2].split()[0]) > 1024]
+        if busy:
+            print("!!! warning: requested GPUs already hold memory of other processes: " + "; ".join(busy), flush=True)
         self.gpu_info = gpus
         return True
 
@@ -157,14 +162,15 @@ class Supervisor:
             cmd.append("--resume")
         # single-threaded BLAS in the worker and (inherited) in its CPU polish pool: the pool
         # already uses one process per core, extra BLAS threads would only oversubscribe
-        env = {**os.environ, "CUDA_VISIBLE_DEVICES": str(i), "PYTHONUNBUFFERED": "1", "PYTHONPATH": str(HERE),
+        dev = a.gpu_ids[i]
+        env = {**os.environ, "CUDA_VISIBLE_DEVICES": str(dev), "PYTHONUNBUFFERED": "1", "PYTHONPATH": str(HERE),
                "OMP_NUM_THREADS": "1", "OPENBLAS_NUM_THREADS": "1", "MKL_NUM_THREADS": "1"}
         out = open(self.run_dir / "logs" / f"worker{i}.out", "a")
         p = subprocess.Popen(cmd, cwd=HERE, env=env, stdout=out, stderr=subprocess.STDOUT, start_new_session=True)
         self.procs[i] = p
         self.started[i] = time.time()
-        self.log({"event": "worker_spawn", "gpu": i, "pid": p.pid, "resume": resume, "ns": self.slices[i]},
-                 echo=f"worker {i} started (pid {p.pid}) on GPU {i} for n={self.slices[i]}" + (" [resumed from checkpoint]" if resume else ""))
+        self.log({"event": "worker_spawn", "gpu": i, "device": dev, "pid": p.pid, "resume": resume, "ns": self.slices[i]},
+                 echo=f"worker {i} started (pid {p.pid}) on GPU {dev} for n={self.slices[i]}" + (" [resumed from checkpoint]" if resume else ""))
 
     def heartbeat_age(self, i: int) -> float:
         hb = self.run_dir / "logs" / f"worker{i}.heartbeat"
@@ -246,13 +252,21 @@ class Supervisor:
             self.prev_elapsed = old.get("elapsed_s", 0)
             resume = True
         else:
-            stamp = time.strftime("%Y%m%d-%H%M%S") + ("-smoke" if a.smoke else "")
+            stamp = time.strftime("%Y%m%d-%H%M%S") + ("-smoke" if a.smoke else "") + (f"-{a.tag}" if a.tag else "")
             self.run_dir = (HERE / "runs" / stamp).resolve()
             budget = parse_duration(a.budget)
             resume = False
         self.minima_dir = self._minima_dir()
         self.records = self._load_records(ns)
         self.slices = old["slices"] if a.resume else self.assign(ns)
+        if not all(self.slices):
+            # fewer n than GPUs: a worker without any n would only crash and be restarted
+            keep = [i for i, s in enumerate(self.slices) if s]
+            print(f"  only {len(keep)} GPUs have work; leaving GPUs "
+                  f"{[g for i, g in enumerate(a.gpu_ids) if i not in keep]} idle", flush=True)
+            a.gpu_ids = [a.gpu_ids[i] for i in keep]
+            self.slices = [self.slices[i] for i in keep]
+            a.gpus = len(keep)
         (self.run_dir / "logs").mkdir(parents=True, exist_ok=True)
         self.log_fh = open(self.run_dir / "logs" / "supervisor.jsonl", "a")
         self.archive = Path(os.path.expanduser(a.archive_dir)).resolve() if a.archive_dir else None
@@ -278,7 +292,7 @@ class Supervisor:
                  echo=f"run dir {self.run_dir}\n  budget {budget / 3600:.2f} h -> hard stop at "
                       f"{self.runinfo['deadline']}; GPUs {a.gpus}; mutator={a.mutator}")
         for i, s in enumerate(self.slices):
-            print(f"  GPU {i}: n = {s}", flush=True)
+            print(f"  GPU {a.gpu_ids[i]}: n = {s}", flush=True)
         if self.minima_dir:
             from fence.evolve import trivial_tie
             ties = [n for n in ns if trivial_tie(n, self.baselines.get(n), self.records.get(n))]
@@ -396,6 +410,9 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--budget", default=None, help="wall-clock budget, e.g. 6h, 90m, 60s (default 6h; 60s with --smoke)")
     ap.add_argument("--gpus", type=int, default=4)
+    ap.add_argument("--gpu-ids", default=None,
+                    help="physical GPUs to use, e.g. 1,2,3 (overrides --gpus; default 0..gpus-1)")
+    ap.add_argument("--tag", default="", help="suffix for the run directory name, e.g. the host name")
     ap.add_argument("--n-range", default=None, help="e.g. 12-50 or 13,15,20-30 (default 12-50; 6-9 with --smoke)")
     ap.add_argument("--archive-dir", default="~/fence-results", help="copy of final results OUTSIDE the repo")
     ap.add_argument("--resume", default=None, help="continue an existing runs/<timestamp> directory")
@@ -423,6 +440,8 @@ def main(argv=None):
                     help="re-propose a topology once its proposer has this many minima on it (0: never)")
     args = ap.parse_args(argv)
     args.budget_given = args.budget is not None
+    args.gpu_ids = [int(g) for g in args.gpu_ids.split(",")] if args.gpu_ids else list(range(args.gpus))
+    args.gpus = len(args.gpu_ids)
     if args.smoke:
         args.budget = args.budget or "60s"
         args.n_range = args.n_range or "6-9"

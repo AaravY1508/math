@@ -63,6 +63,11 @@ wheels, on 4× RTX 3090 with driver 595.
 setsid nohup ./venv/bin/python run_overnight.py --budget 6h --gpus 4 \
     --archive-dir ~/fence-results > runs/launch.log 2>&1 < /dev/null &
 
+# several hosts sharing this repo over NFS: give each a disjoint --n-range and a --tag;
+# they share one minima library safely because every n has a single writer
+setsid nohup ./venv/bin/python run_overnight.py --budget 6h --gpu-ids 1,2,3 --n-range 13,15,20-30 \
+    --tag ynez > runs/launch-ynez.log 2>&1 < /dev/null &
+
 # progress / results at any time
 tail -f runs/launch.log
 ./venv/bin/python report.py runs/<timestamp>              # table + SVGs of ties/beats
@@ -82,6 +87,8 @@ Main `run_overnight.py` flags:
 |---|---|
 | `--budget` | Wall-clock budget: `6h`, `90m`, `60s`. The run exits hard at the budget. |
 | `--gpus` | Number of GPUs; one worker process per GPU via `CUDA_VISIBLE_DEVICES`. |
+| `--gpu-ids` | Physical GPUs to use instead, e.g. `1,2,3` to skip a GPU someone else is using. |
+| `--tag` | Suffix for the run directory, e.g. the host name when several hosts share this repo over NFS. |
 | `--n-range` | n values to search, e.g. `12-50` (the default) or `13,15,20-30`. |
 | `--archive-dir` | Where final results are copied, outside the repo (default `~/fence-results/`). Also synced every 30 min. |
 | `--batch` | GPU restarts per topology. Default depends on n: 16384 / 12288 / 10240. |

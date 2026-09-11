@@ -20,8 +20,9 @@ Library directory
     proposers/<proposer>/N<n>.trivial.json  this proposer's search at n stabilized on the grid-trivial answer
     records/N<n>.json                       best verified configuration for n over all runs
 
-Each n belongs to exactly one GPU worker per run, so N<n>.* and records/N<n>.json have a
-single writer; every write is atomic (temp file + rename).
+Each n belongs to exactly one GPU worker, so N<n>.* and records/N<n>.json have a single
+writer, also when several hosts share the library over NFS with disjoint n-ranges; every
+write is atomic (temp file + rename).
 
 Topology signature
 ------------------
@@ -42,6 +43,7 @@ import hashlib
 import json
 import math
 import os
+import socket
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -208,7 +210,8 @@ def same_minimum(m: dict, signature: str, area: float) -> bool:
 # ---------------------------------------------------------------------------
 
 def _atomic_write(path: Path, obj) -> None:
-    tmp = path.with_name(path.name + f".tmp{os.getpid()}")
+    # the library may sit on NFS shared by several hosts: the temp name must be unique across them
+    tmp = path.with_name(f"{path.name}.tmp.{socket.gethostname()}.{os.getpid()}")
     tmp.write_text(json.dumps(obj, indent=1, default=str))
     os.replace(tmp, path)
 

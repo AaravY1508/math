@@ -1070,22 +1070,22 @@ class Worker:
     def _stabilized(self, n: int, proposer: str, best: dict):
         meta = {"run": self.run_dir.name, "program": best["program"], "origin": best["origin"],
                 "found_at": best["found_at"], "stable_after": self.args.stable_after}
-        self._register_proposer(n, proposer)
         if is_grid_trivial(best["area"], n):
             self.lib.mark_trivial(proposer, n, best["config"], meta)
             self.trivial[n].add(proposer)
             self.log({"event": "minimum_trivial", "n": n, "proposer": proposer, "area": best["area"]})
-            return
-        topo, coords = G.config_from_json(best["config"])
-        form = Mn.canonical_form(topo)
-        new, doc = self.lib.add_minimum(proposer, n, best["config"], form.signature, coords[form.orders[0]], meta)
-        if new:
-            self.known[n].setdefault(proposer, []).append(_slim(doc))
-            self.log({"event": "minimum_indexed", "n": n, "proposer": proposer, "name": doc["name"],
-                      "area": doc["area"], "signature": form.signature})
         else:
-            self.log({"event": "minimum_duplicate", "n": n, "proposer": proposer, "of": doc["name"],
-                      "area": best["area"]})
+            topo, coords = G.config_from_json(best["config"])
+            form = Mn.canonical_form(topo)
+            new, doc = self.lib.add_minimum(proposer, n, best["config"], form.signature, coords[form.orders[0]], meta)
+            if new:
+                self.known[n].setdefault(proposer, []).append(_slim(doc))
+                self.log({"event": "minimum_indexed", "n": n, "proposer": proposer, "name": doc["name"],
+                          "area": doc["area"], "signature": form.signature})
+            else:
+                self.log({"event": "minimum_duplicate", "n": n, "proposer": proposer, "of": doc["name"],
+                          "area": best["area"]})
+        self._register_proposer(n, proposer)
 
     def _register_proposer(self, n: int, proposer: str):
         """Save the lineage's root program next to its minima (roots are seed programs)."""
