@@ -359,7 +359,6 @@ def main(argv=None):
     la.add_argument("--seed", type=int, default=0)
     la.add_argument("--cpu-procs", type=int, default=0, help="per worker (0: share the host's cores over --gpus-on-host)")
     la.add_argument("--gpus-on-host", type=int, default=4, help="GPUs of all concurrent arms together")
-    la.add_argument("extra", nargs="*", help="further run_overnight.py flags (after --)")
     me = sub.add_parser("metrics", help="per-n and per-operator tables of one or more runs")
     me.add_argument("runs", nargs="+")
     me.add_argument("--lib-before", default=None, help="the snapshot the arms started from (library records)")
@@ -376,7 +375,10 @@ def main(argv=None):
     ab.add_argument("--only", default=None, help="comma-separated n:parent:child:arm tasks to run")
     abr = sub.add_parser("op-ab-report", help="tables of op-ab result files")
     abr.add_argument("files", nargs="+")
-    args = ap.parse_args(argv)
+    argv = list(sys.argv[1:] if argv is None else argv)
+    extra = argv[argv.index("--") + 1:] if "--" in argv else []     # launch: flags for run_overnight.py
+    args = ap.parse_args(argv[:argv.index("--")] if "--" in argv else argv)
+    args.extra = extra
     {"snapshot": cmd_snapshot, "launch": cmd_launch, "metrics": cmd_metrics, "op-ab": cmd_op_ab,
      "op-ab-report": cmd_op_ab_report}[args.cmd](args)
 
