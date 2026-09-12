@@ -350,9 +350,10 @@ class Mutator:
         raise NotImplementedError
 
 
-FACE_WEIGHT = 0.0          # default share of the face-aware operator (worker flag --face-weight)
-SEED_ELITES = 0            # default number of library minima each n's archive starts from (--seed-elites)
-VERIFY_POLICY = "top"      # which polished candidates go to the referee (--verify-policy)
+# defaults at the settings validated in EXPERIMENTS.md (each flag set to 0 / "top" turns its change off)
+FACE_WEIGHT = 0.25         # share of the face-aware operator (worker flag --face-weight)
+SEED_ELITES = 6            # library minima each n's archive starts from (--seed-elites)
+VERIFY_POLICY = "worthy"   # which polished candidates go to the referee (--verify-policy)
 
 
 def target_faces(base: dict | None) -> int | None:

@@ -67,12 +67,10 @@ SAFETY = {"cross": 3.0, "order": 1.0, "turn": 0.3, "face_pos": 1.0}
 
 
 def default_batch(n: int) -> int:
-    """Default restarts per topology as a function of n (overridable by flag)."""
-    if n <= 20:
-        return 16384
-    if n <= 35:
-        return 12288
-    return 10240
+    """Default restarts per topology (overridable by flag). 2048 for every n: on the same
+    topologies it reaches the same verified areas as 16384 (mean -0.006, EXPERIMENTS.md) in 18%
+    of the Adam time, so the search evaluates ~4x as many topologies per hour."""
+    return 2048
 
 
 # ---------------------------------------------------------------------------

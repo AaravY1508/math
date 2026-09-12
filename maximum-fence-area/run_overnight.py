@@ -432,7 +432,7 @@ def main(argv=None):
     ap.add_argument("--smoke", action="store_true", help="60-second end-to-end check at small n")
     ap.add_argument("--mutator", choices=["random", "llm"], default="random")
     ap.add_argument("--seed", type=int, default=0)
-    ap.add_argument("--batch", type=int, default=0, help="restarts per topology on the GPU (0 = by n: 32k/16k/10k)")
+    ap.add_argument("--batch", type=int, default=0, help="restarts per topology on the GPU (0 = fence.optimize.default_batch: 2048)")
     ap.add_argument("--steps", type=int, default=1000)
     ap.add_argument("--polish-iters", type=int, default=1200)
     ap.add_argument("--tol", type=float, default=1e-9, help="referee tolerance (absolute, unit scale)")

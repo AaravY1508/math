@@ -91,7 +91,7 @@ Main `run_overnight.py` flags:
 | `--tag` | Suffix for the run directory, e.g. the host name when several hosts share this repo over NFS. |
 | `--n-range` | n values to search, e.g. `12-50` (the default) or `13,15,20-30`. |
 | `--archive-dir` | Where final results are copied, outside the repo (default `~/fence-results/`). Also synced every 30 min. |
-| `--batch` | GPU restarts per topology. Default depends on n: 16384 / 12288 / 10240. |
+| `--batch` | GPU restarts per topology (default 2048; 16384 reached the same areas at ~4x the GPU time, see `EXPERIMENTS.md`). |
 | `--steps` | Adam steps per topology (default 1000). |
 | `--mutator` | `random` (default, no API) or `llm`. |
 | `--resume RUN_DIR` | Restart workers from their checkpoints. |
@@ -99,10 +99,10 @@ Main `run_overnight.py` flags:
 | `--no-minima` | Neither record nor avoid minima. |
 | `--stable-after` | Evaluations of a proposer at n without improvement before its best new result counts as a stabilized minimum (default 6). |
 | `--topology-cap` | Re-propose a topology once its proposer has this many minima on it (default 3; 0 = never). |
-| `--face-weight` | Share of the face-aware mutation operator (0 = off: the previous operator mix). |
-| `--seed-elites` | Start each n's archive from its k best library minima (0 = off: an empty archive). |
+| `--face-weight` | Share of the face-aware mutation operator (default 0.25; 0 = off: the previous operator mix). |
+| `--seed-elites` | Start each n's archive from its k best library minima (default 6; 0 = off: an empty archive). |
 | `--focus` | Search only the k n of `--n-range` closest to their records (0 = all). |
-| `--verify-policy` | `top` (the best polished candidates go to the referee) or `worthy` (only those that would change something). |
+| `--verify-policy` | `worthy` (default: only polished candidates that would change something go to the referee) or `top` (the best ones always). |
 
 ## How it works
 

@@ -129,7 +129,7 @@ def test_operator_weights_are_unchanged_without_the_face_op():
         m = E.RandomMutator(random.Random(0), face_weight=fw)
         assert m.op_weights(True, False) == OLD_OPS
         assert m.op_weights(False, False) == no_elite
-    assert E.RandomMutator(random.Random(0)).op_weights(True, True) == OLD_OPS   # default: off
+    assert E.RandomMutator(random.Random(0)).face_weight == E.FACE_WEIGHT == 0.25   # the validated default
 
 
 def test_face_op_takes_its_share_from_the_regrowing_operators():

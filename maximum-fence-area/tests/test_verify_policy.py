@@ -3,6 +3,7 @@ import numpy as np
 
 from fence import evolve as E
 from fence import geometry as G
+from fence import optimize as O
 from tests.test_evolve import make_worker
 from tests.test_face_edits import RECORDS
 
@@ -15,8 +16,10 @@ def job_and_candidate(w, n, area):
     return job, {"area": area, "z": np.concatenate([X.ravel(), np.full(len(topo.pins), 0.5)])}
 
 
-def test_default_policy_is_top():
-    assert E.worker_parser().parse_args(["--gpu", "0", "--ns", "20", "--run-dir", "r", "--deadline", "0"]).verify_policy == "top"
+def test_defaults_are_the_validated_settings():
+    a = E.worker_parser().parse_args(["--gpu", "0", "--ns", "20", "--run-dir", "r", "--deadline", "0"])
+    assert (a.verify_policy, a.face_weight, a.seed_elites, a.batch) == ("worthy", 0.25, 6, 0)
+    assert O.default_batch(14) == O.default_batch(45) == 2048
 
 
 def test_worthy_candidates(tmp_path):
