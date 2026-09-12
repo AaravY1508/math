@@ -17,7 +17,10 @@ Modelled on OpenEvolve / ShinkaEvolve (LLM-guided program evolution):
 * Mutation operators behind one interface (`Mutator.mutate`):
     random -- structural genome mutations, no API: add/remove face, split edge,
               change a junction type, apply a symmetry group, re-seed from an elite
-              (incl. elites of n-1 / n+1 found by other GPUs), parameter jitter.
+              (incl. elites of n-1 / n+1 found by other GPUs), parameter jitter; and
+              (share --face-weight) a face-aware edit of one of n's verified elites
+              (fence.builder.face_fill): a fence moves off an under-filled face, or a
+              corner joint is dissolved while n has fewer faces than the record needs.
     llm    -- asks Claude to rewrite the program given its source and score history.
   The overnight runner uses `random` (zero API dependency).
 * Proposers: every program belongs to the lineage of the hand-written seed program it
@@ -345,13 +348,61 @@ class Mutator:
         raise NotImplementedError
 
 
+FACE_WEIGHT = 0.0          # default share of the face-aware operator (worker flag --face-weight)
+
+
+def target_faces(base: dict | None) -> int | None:
+    """Fewest faces that could beat the record: every face holds at most area 1."""
+    return int(math.floor(base["A"] + 1e-9)) + 1 if base else None
+
+
 class RandomMutator(Mutator):
-    """Structural genome mutations; no network, no LLM."""
+    """Structural genome mutations; no network, no LLM.
+
+    The face-aware operator (share `face_weight`) edits the layout of one of n's own verified
+    elites where it loses area (fence.builder.face_fill); its share is taken proportionally from
+    the operators that rebuild a layout from its program (all but `elite`).
+    """
 
     name = "random"
+    BASE_OPS = [("jitter", 0.25), ("add_edit", 0.12), ("remove_edit", 0.05), ("seed", 0.08), ("symmetry", 0.08),
+                ("elite", 0.36), ("fresh", 0.06)]
 
-    def __init__(self, rng: random.Random):
+    def __init__(self, rng: random.Random, face_weight: float = FACE_WEIGHT):
         self.rng = rng
+        self.face_weight = face_weight
+
+    def op_weights(self, has_elites: bool, face_ok: bool) -> list[tuple[str, float]]:
+        ops = [(k, 0.0 if k == "elite" and not has_elites else w) for k, w in self.BASE_OPS]
+        fw = self.face_weight if face_ok else 0.0
+        if fw <= 0:
+            return ops
+        regrow = sum(w for k, w in ops if k != "elite")
+        s = max(0.0, regrow - fw) / regrow
+        return [(k, w if k == "elite" else w * s) for k, w in ops] + [("face", fw)]
+
+    def _face_edit(self, ctx: dict):
+        """(elite, edited sketch, what face_fill did) for one of n's own elites (ctx["face_sources"]):
+        the fittest with probability 1/2, else a random one, then the rest; None if none takes a
+        face edit. An edit that reproduces the elite's topology is vetoed (it would only
+        re-converge)."""
+        r = self.rng
+        own = list(ctx.get("face_sources", []))
+        if r.random() < 0.5:
+            own.sort(key=lambda e: -e.get("area", 0.0))
+        else:
+            r.shuffle(own)
+        for src in own[:4]:
+            sk = Bd.Sketch.from_json(src["sketch"])
+            try:
+                sig0 = Mn.canonical_form(sk.topology()).signature
+                info = Bd.face_fill(sk, np.random.default_rng(r.randrange(2 ** 32)), ctx.get("target_faces"),
+                                    reject=lambda t: Mn.canonical_form(t.topology()).signature == sig0)
+            except (Bd.BuildError, G.InvalidTopology):
+                continue
+            if info is not None:
+                return src, sk.to_json(), info
+        return None
 
     def _jitter(self, g: dict):
         r = self.rng
@@ -385,10 +436,27 @@ class RandomMutator(Mutator):
         g = copy.deepcopy(parent.genome) if parent.genome else copy.deepcopy(r.choice(seeds))
         proposer = parent.proposer
         elites = ctx.get("elite_sketches", [])
-        ops = [("jitter", 0.25), ("add_edit", 0.12), ("remove_edit", 0.05), ("seed", 0.08), ("symmetry", 0.08),
-               ("elite", 0.36 if elites else 0.0), ("fresh", 0.06)]
-        names, w = zip(*ops)
+        face_ok = ctx.get("target_faces") is not None and bool(ctx.get("face_sources"))
+        names, w = zip(*self.op_weights(bool(elites), face_ok))
         op = r.choices(names, weights=w)[0]
+        elite_tag = "elite"
+        if op == "face":
+            got = self._face_edit(ctx)
+            if got is not None:
+                src, sketch, info = got
+                g = {"seed": {"kind": "literal", "sketch": sketch},
+                     "grow": copy.deepcopy((parent.genome or {}).get("grow", {})), "edits": [],
+                     "origin_note": src["note"], "face_edit": info}
+                # a child of a lineage blocked at n starts its own lineage, so it can be evolved on
+                return Program.from_genome(g, parent=parent.pid, generation=parent.generation + 1,
+                                           origin=f"random:face:{info['move']}-{info['where']}:{src['note']}",
+                                           proposer=None if src.get("blocked") else src.get("proposer") or parent.proposer)
+            # no elite of n takes a face edit: re-seed from an elite, else another operator by weight
+            rest = [(k, x) for k, x in zip(names, w) if k not in ("face", "elite") and x > 0]
+            if elites:
+                op, elite_tag = "elite", "elite-fb"
+            else:
+                op = r.choices(*zip(*rest))[0] if rest else "fresh"
         if op == "jitter":
             tag = self._jitter(g)
         elif op == "add_edit":
@@ -420,7 +488,7 @@ class RandomMutator(Mutator):
                  "grow": copy.deepcopy((parent.genome or {}).get("grow", {})),
                  "edits": [r.choice(EDIT_OPS) for _ in range(r.choice([0, 1, 1, 2, 2, 3]))],
                  "origin_note": src["note"]}
-            tag = f"elite:{src['note']}:{'+'.join(g['edits']) or 'reopt'}"
+            tag = f"{elite_tag}:{src['note']}:{'+'.join(g['edits']) or 'reopt'}"
             proposer = src.get("proposer") or parent.proposer    # the child is built from the elite's layout
         else:
             g = copy.deepcopy(r.choice(seeds))
@@ -533,9 +601,9 @@ class LLMMutator(Mutator):
                        proposer=parent.proposer)
 
 
-def make_mutator(kind: str, rng: random.Random, **kw) -> Mutator:
+def make_mutator(kind: str, rng: random.Random, face_weight: float = FACE_WEIGHT, **kw) -> Mutator:
     if kind == "random":
-        return RandomMutator(rng)
+        return RandomMutator(rng, face_weight)
     if kind == "llm":
         return LLMMutator(rng, **kw)
     raise ValueError(f"unknown mutator {kind!r}")
@@ -633,7 +701,7 @@ class Worker:
                 self.state[n] = NState(n=n, baseline=self.baselines.get(n),
                                        islands=[Archive() for _ in range(args.islands)])
         self._load_library()
-        self.mutator = make_mutator(args.mutator, self.rng)
+        self.mutator = make_mutator(args.mutator, self.rng, face_weight=args.face_weight)
         self.log({"event": "worker_start", "ns": self.ns, "resumed": resumed, "pid": os.getpid(),
                   "deadline": self.deadline, "mutator": args.mutator, "minima_dir": args.minima_dir})
 
@@ -727,18 +795,19 @@ class Worker:
             return (s.time_spent + 5.0) / w * (0.85 + 0.3 * self.rng.random())
         return min(self.ns, key=score)
 
-    def _elite_sketches(self, n: int) -> list[dict]:
+    def _elite_sketches(self, n: int, with_blocked: bool = False) -> list[dict]:
         """Verified configurations usable as literal seeds: own archive + best of n-1, n, n+1
         (the latter possibly found by another GPU; read from run_dir/best). Elites of
-        lineages blocked at n are left out."""
+        lineages blocked at n are left out, or with_blocked: kept and flagged "blocked"."""
         out = []
         st = self.state[n]
         blocked = self._blocked(n)
         for isl in st.islands:
             for e in sorted(isl.cells.values(), key=lambda e: -e.fitness)[:4]:
-                if e.program.proposer not in blocked:
+                if with_blocked or e.program.proposer not in blocked:
                     out.append({"sketch": _config_to_sketch(e.config), "note": f"n{n}:{e.area:.4f}",
-                                "proposer": e.program.proposer})
+                                "proposer": e.program.proposer, "n": n, "area": e.area,
+                                "blocked": e.program.proposer in blocked})
         for m in (n - 1, n + 1, n):
             p = self.run_dir / "best" / f"n{m:03d}.json"
             now = time.time()
@@ -748,13 +817,14 @@ class Worker:
                 if p.exists():
                     try:
                         cfg = json.loads(p.read_text())
+                        a = float(cfg["verification"]["total_area"])
                         item = {"sketch": _config_to_sketch(cfg), "proposer": cfg.get("proposer"),
-                                "note": f"n{m}:{float(cfg['verification']['total_area']):.4f}"}
+                                "note": f"n{m}:{a:.4f}", "n": m, "area": a}
                     except Exception:  # noqa: BLE001
                         item = None
                 cached = self._neighbor_cache[m] = (now, item)
-            if cached[1] and cached[1]["proposer"] not in blocked:
-                out.append(cached[1])
+            if cached[1] and (with_blocked or cached[1]["proposer"] not in blocked):
+                out.append({**cached[1], "blocked": cached[1]["proposer"] in blocked})
         return out
 
     # -- one evaluation, split into GPU part + asynchronous CPU parts --------------
@@ -786,8 +856,12 @@ class Worker:
                 self.log({"event": "n_exhausted", "n": n, "blocked": sorted(blocked)})
                 return None
             parent = parent_e.program if parent_e else self.rng.choice(open_seeds)
-            ctx = {"n": n, "elite_sketches": self._elite_sketches(n), "history": st.history,
-                   "seeds": [p.genome for p in open_seeds],
+            # the face-aware operator may also edit elites of lineages blocked at n: it changes their
+            # layout where it loses area, so it cannot re-derive the grid-trivial answer
+            sketches = self._elite_sketches(n, with_blocked=self.args.face_weight > 0)
+            ctx = {"n": n, "elite_sketches": [e for e in sketches if not e["blocked"]],
+                   "face_sources": [e for e in sketches if e["n"] == n], "history": st.history,
+                   "seeds": [p.genome for p in open_seeds], "target_faces": target_faces(st.baseline),
                    "baseline": st.baseline["display"] if st.baseline else None,
                    "best_area": st.best["area"] if st.best else None,
                    "parent_fitness": parent_e.fitness if parent_e else None}
@@ -795,7 +869,7 @@ class Worker:
                 child = self.mutator.mutate(parent, ctx)
             except MutationError as exc:
                 self.log({"event": "mutation_error", "n": n, "error": str(exc)[:300]})
-                child = RandomMutator(self.rng).mutate(parent, ctx)
+                child = RandomMutator(self.rng, self.args.face_weight).mutate(parent, ctx)
         if child.proposer == proposer_id(child.source):
             self.roots.setdefault(child.proposer, (child.genome, child.source))
         seed = int(self.nprng.integers(2 ** 31))
@@ -1211,6 +1285,8 @@ def worker_parser() -> argparse.ArgumentParser:
                          "evaluations of that proposer at n without improvement")
     ap.add_argument("--topology-cap", type=int, default=3,
                     help="re-propose a topology once its proposer has this many minima on it (0: never)")
+    ap.add_argument("--face-weight", type=float, default=FACE_WEIGHT,
+                    help="share of the face-aware mutation operator (0: off, the previous operator mix)")
     return ap
 
 

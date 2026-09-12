@@ -19,6 +19,7 @@ import shutil
 import subprocess
 import sys
 import time
+import zlib
 from collections import Counter, defaultdict
 from pathlib import Path
 
@@ -188,6 +189,129 @@ def run_metrics(run_dir: Path, lib_before: Path | None) -> dict:
             "flags": {k: info["args"].get(k) for k in ("batch", "seed", "n_range") if k in info["args"]}}
 
 
+# ---------------------------------------------------------------------------
+# offline operator A/B: the same parents, one child per operator, the same optimizer
+# ---------------------------------------------------------------------------
+
+def library_parents(lib: Path, n: int, k: int) -> list[dict]:
+    """n's all-time record plus its best other library minima: up to k configurations with
+    distinct topologies, best first ({"name", "area", "config", "signature"})."""
+    from fence import minima as Mn
+    L = Mn.MinimaLibrary(lib)
+    docs = []
+    rec = L.record(n)
+    if rec:
+        docs.append({"name": f"record{n}", "area": float(rec["area"]), "config": rec["config"],
+                     "signature": Mn.canonical_form(G.config_from_json(rec["config"])[0]).signature})
+    for ms in L.minima(n).values():
+        docs += [{"name": m["name"], "area": float(m["area"]), "config": m["config"], "signature": m["signature"]}
+                 for m in ms]
+    out, seen = [], set()
+    for d in sorted(docs, key=lambda d: -d["area"]):
+        if d["signature"] not in seen and d["config"]["verification"].get("valid"):
+            seen.add(d["signature"])
+            out.append(d)
+    return out[:k]
+
+
+def ab_child(arm: str, n: int, parent: dict, rng, target: int | None):
+    """(sketch, what was done) of one child of `parent` under `arm`, or (None, reason)."""
+    import numpy as np
+    from fence import builder as Bd
+    from fence import minima as Mn
+    sk0 = Bd.Sketch.from_json(E._config_to_sketch(parent["config"]))
+    if arm == "face":
+        sk = sk0.copy()
+        info = Bd.face_fill(sk, rng, target, reject=lambda t: Mn.canonical_form(t.topology()).signature ==
+                            parent["signature"])
+        return (sk, info) if info else (None, "not applicable")
+    # today's elite operator, with at least one edit (a zero-edit child only re-optimizes the parent)
+    edits = [E.EDIT_OPS[int(rng.integers(len(E.EDIT_OPS)))] for _ in range(int(rng.choice([1, 1, 2, 2, 3])))]
+    try:
+        sk = Bd.build_from_genome(n, rng, {"seed": {"kind": "literal", "sketch": sk0.to_json()}, "edits": edits})
+    except (Bd.BuildError, G.InvalidTopology) as exc:
+        return None, f"build failed: {exc}"
+    return sk, {"move": "+".join(edits)}
+
+
+def cmd_op_ab(args):
+    import multiprocessing as mp
+
+    import numpy as np
+    from fence import minima as Mn
+    from fence import optimize as O
+    ns = _parse_ns(args.ns)
+    bad = sorted(set(ns) & grid_record_ns())
+    if bad:
+        sys.exit(f"refusing n={bad}: their world record is a grid")
+    base = E.load_baselines()
+    tasks = [(n, p, arm, c) for n in ns for p in library_parents(Path(args.lib), n, args.parents)
+             for c in range(args.children) for arm in ("face", "elite")]
+    k, m = map(int, args.share.split("/"))
+    tasks = tasks[k::m]
+    if args.only:
+        tasks = [t for t in tasks if f"{t[0]}:{t[1]['name']}:{t[3]}:{t[2]}" in args.only.split(",")]
+    best_parent = {n: max((p["area"] for p in library_parents(Path(args.lib), n, args.parents)), default=0.0) for n in ns}
+    pool = mp.get_context("spawn").Pool(args.cpu_procs, initializer=O.pool_init)
+    out = open(args.out, "a")
+    for n, parent, arm, c in tasks:
+        seed = zlib.crc32(f"{n}:{parent['name']}:{c}:{args.seed}".encode()) % (2 ** 31)   # same for both arms
+        rng = np.random.default_rng(seed)
+        t0 = time.time()
+        rec = {"n": n, "parent": parent["name"], "parent_area": parent["area"], "arm": arm, "child": c}
+        sk, info = ab_child(arm, n, parent, rng, E.target_faces(base[n]))
+        if sk is None:
+            out.write(json.dumps({**rec, "built": False, "why": info}) + "\n")
+            out.flush()
+            continue
+        topo = sk.topology()
+        cfg = O.OptConfig(batch=O.default_batch(n))
+        res = O.optimize_topology(topo, sk.coords(), n, cfg, device="cuda", seed=seed, pool=pool)
+        best = res["best"]
+        row = {**rec, "built": True, "move": info["move"], "where": info.get("where"),
+               "same_topology": Mn.canonical_form(topo).signature == parent["signature"],
+               "faces_child": len(topo.faces), "area": best["area"] if best else None, "t": round(time.time() - t0, 1)}
+        if best:
+            F, nd, deficit = best_faces(best["config"])
+            row.update(faces_best=F, dead_best=nd, deficit_best=round(deficit, 4), delta=best["area"] - parent["area"])
+            if args.save_dir and best["area"] > best_parent[n] + 1e-9:
+                # better than every parent of n, i.e. than its library record: keep the configuration
+                d = Path(args.save_dir)
+                d.mkdir(parents=True, exist_ok=True)
+                f = d / f"n{n:03d}_{best['area']:.8f}_{arm}_{parent['name']}_{c}.json"
+                f.write_text(json.dumps({**best["config"], "found_by": {**rec, "move": info["move"], "seed": seed}}, indent=1))
+                row["saved"] = str(f)
+        out.write(json.dumps(row) + "\n")
+        out.flush()
+    pool.terminate()
+
+
+def cmd_op_ab_report(args):
+    rows = [json.loads(ln) for f in args.files for ln in open(f)]
+    def summary(rs):
+        built = [r for r in rs if r["built"]]
+        ver = [r for r in built if r.get("area") is not None]
+        beat = [r for r in ver if r["delta"] > 1e-4]
+        d = [r["delta"] for r in ver]
+        return (f"{len(rs)} | {len(built)} | {sum(r['same_topology'] for r in built)} | {len(ver)} | "
+                f"{len(beat)} ({len(beat) / max(1, len(ver)):.0%}) | {_fmt(sum(d) / len(d) if d else None, 3)} | "
+                f"{_fmt(max(d) if d else None, 4)} | "
+                f"{_fmt(sum(r['dead_best'] for r in ver) / len(ver) if ver else None, 2)}")
+    print("| n | arm | children | built | same topology as parent | verified | beat parent | mean delta | best delta | dead faces / result |")
+    print("|---|---|---|---|---|---|---|---|---|---|")
+    for n in sorted({r["n"] for r in rows}):
+        for arm in ("face", "elite"):
+            print(f"| {n} | {arm} | " + summary([r for r in rows if r["n"] == n and r["arm"] == arm]) + " |")
+    for arm in ("face", "elite"):
+        print(f"| all | {arm} | " + summary([r for r in rows if r["arm"] == arm]) + " |")
+    moves = defaultdict(list)
+    for r in rows:
+        if r["arm"] == "face" and r["built"] and r.get("area") is not None:
+            moves[f"{r['move']}-{r['where']}"].append(r["delta"])
+    print("\nface moves: " + ", ".join(f"{k}: {len(v)} children, {sum(x > 1e-4 for x in v)} beat parent, "
+                                       f"mean delta {sum(v) / len(v):.3f}" for k, v in sorted(moves.items())))
+
+
 def _fmt(x, nd=4):
     return "-" if x is None else (f"{x:.{nd}f}" if isinstance(x, float) else str(x))
 
@@ -239,8 +363,22 @@ def main(argv=None):
     me = sub.add_parser("metrics", help="per-n and per-operator tables of one or more runs")
     me.add_argument("runs", nargs="+")
     me.add_argument("--lib-before", default=None, help="the snapshot the arms started from (library records)")
+    ab = sub.add_parser("op-ab", help="offline A/B of the face-aware vs the elite operator on library parents")
+    ab.add_argument("--ns", required=True)
+    ab.add_argument("--lib", required=True)
+    ab.add_argument("--parents", type=int, default=3, help="per n: the record plus the best other minima")
+    ab.add_argument("--children", type=int, default=5, help="per parent and arm")
+    ab.add_argument("--share", default="0/1", help="k/m: this process runs every m-th task from the k-th")
+    ab.add_argument("--cpu-procs", type=int, default=15)
+    ab.add_argument("--seed", type=int, default=0)
+    ab.add_argument("--out", required=True)
+    ab.add_argument("--save-dir", default=None, help="keep verified configurations that beat n's library record")
+    ab.add_argument("--only", default=None, help="comma-separated n:parent:child:arm tasks to run")
+    abr = sub.add_parser("op-ab-report", help="tables of op-ab result files")
+    abr.add_argument("files", nargs="+")
     args = ap.parse_args(argv)
-    {"snapshot": cmd_snapshot, "launch": cmd_launch, "metrics": cmd_metrics}[args.cmd](args)
+    {"snapshot": cmd_snapshot, "launch": cmd_launch, "metrics": cmd_metrics, "op-ab": cmd_op_ab,
+     "op-ab-report": cmd_op_ab_report}[args.cmd](args)
 
 
 if __name__ == "__main__":

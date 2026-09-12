@@ -99,6 +99,7 @@ Main `run_overnight.py` flags:
 | `--no-minima` | Neither record nor avoid minima. |
 | `--stable-after` | Evaluations of a proposer at n without improvement before its best new result counts as a stabilized minimum (default 6). |
 | `--topology-cap` | Re-propose a topology once its proposer has this many minima on it (default 3; 0 = never). |
+| `--face-weight` | Share of the face-aware mutation operator (0 = off: the previous operator mix). |
 
 ## How it works
 
@@ -201,6 +202,17 @@ operate on the program's GENOME:
 - re-seed from an elite
 - change the seed family (ring, grid, pinwheel)
 - jitter growth-policy parameters
+- face-aware edit (share `--face-weight`), which edits the layout of one of n's own
+  verified elites where it loses area instead of regrowing from the program. A connected
+  layout with n fences and J joints (vertices that are not T-pins) has exactly
+  F = n + 1 − J bounded faces, so only an edit that removes a joint can gain a face at
+  fixed n. The edit is one of:
+  - *relocate*: a face below area 0.9 loses the boundary fence whose removal costs the
+    least area, and that fence comes back as a one-fence cell (F unchanged).
+  - *dissolve*: when the layout has fewer faces than floor(record) + 1, a corner where
+    exactly two fences meet goes away. One fence is removed, the other's loose end is
+    pinned on the nearest edge, and the removed fence comes back as a one-fence cell
+    (F + 1).
 
 **`llm`** is wired but off by default. `--mutator llm` sends the program source,
 its score history, and the builder API to Claude (`claude-opus-5`, streaming,

@@ -158,6 +158,8 @@ class Supervisor:
                "--job-timeout", str(a.job_timeout), "--tol", str(a.tol),
                "--minima-dir", str(self.minima_dir or ""), "--stable-after", str(a.stable_after),
                "--topology-cap", str(a.topology_cap)]
+        if a.face_weight is not None:
+            cmd += ["--face-weight", str(a.face_weight)]
         if resume:
             cmd.append("--resume")
         # single-threaded BLAS in the worker and (inherited) in its CPU polish pool: the pool
@@ -438,6 +440,8 @@ def main(argv=None):
                          "is recorded as a minimum")
     ap.add_argument("--topology-cap", type=int, default=3,
                     help="re-propose a topology once its proposer has this many minima on it (0: never)")
+    ap.add_argument("--face-weight", type=float, default=None,
+                    help="share of the face-aware mutation operator (default: fence.evolve's; 0 = off)")
     args = ap.parse_args(argv)
     args.budget_given = args.budget is not None
     args.gpu_ids = [int(g) for g in args.gpu_ids.split(",")] if args.gpu_ids else list(range(args.gpus))

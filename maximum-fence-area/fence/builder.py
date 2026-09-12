@@ -616,6 +616,231 @@ def move_fence(sk: Sketch, rng, grow=None) -> bool:
     return False
 
 
+# ---------------------------------------------------------------------------
+# face-aware edits (on the sketch of a verified configuration)
+# ---------------------------------------------------------------------------
+#
+# A connected layout with n fences and J joints (vertices that are not T-pins) has exactly
+# F = n + 1 - J bounded faces (Euler: E = n + #pins, V = J + #pins). An m-fence cell adds
+# m - 1 joints and removing a pin-free fence removes none, so at fixed n only an edit that
+# removes a joint can raise F. `face_fill` reads the face areas off the sketch itself (a
+# sketch made from a verified configuration carries its exact coordinates) and applies one of
+#   relocate  a face below `dead` loses the boundary fence whose removal costs the least area;
+#             the fence comes back as a one-fence cell (J unchanged, so F unchanged)
+#   dissolve  a two-fence corner joint goes away: one of its fences is removed, the other's
+#             loose end is pinned on the nearest edge it can reach, and the removed fence comes
+#             back as a one-fence cell (J - 1, so F + 1)
+
+DEAD_FACE = 0.9          # a bounded face below this area is under-filled
+MIN_FACE = 1e-3          # the optimizer's min_face: a sketch face below this starts infeasible
+MIN_EDGE = 0.1           # new pins only on edges at least this long ...
+PIN_T = (0.15, 0.85)     # ... and this far inside them
+FENCE_LEN = (0.6, 1.4)   # sketch lengths an edit may leave (the optimizer makes them exactly 1)
+CELL_GROW = {"target_area": 1.0, "candidates": 48, "greedy": 1.0}
+
+
+def face_sides(sk: Sketch):
+    """(bounded face cycles, their areas, {directed edge (u, w): face on its left}); the
+    unbounded face is -1."""
+    topo = sk.topology()
+    left = {}
+    for i, cyc in enumerate(list(topo.faces) + [topo.outer]):
+        fid = i if i < len(topo.faces) else -1
+        for k in range(len(cyc)):
+            left[(cyc[k], cyc[(k + 1) % len(cyc)])] = fid
+    return topo.faces, G.face_areas(sk.coords(), topo.faces), left
+
+
+def removal_cost(sides, areas) -> float | None:
+    """Area lost when the fence between two faces goes: merged bounded faces keep at most 1,
+    a face opened to the outside is lost. None for a fence with one face on both sides
+    (removing it would disconnect the layout)."""
+    a, b = sides
+    if a == b:
+        return None
+    if a == -1 or b == -1:
+        return float(areas[b if a == -1 else a])
+    return max(0.0, float(areas[a] + areas[b]) - 1.0)
+
+
+def _corner(sk: Sketch, ends, v) -> bool:
+    """v is a joint where exactly two fences end."""
+    return v not in sk.pins and len(ends[v]) == 2
+
+
+def _drop_fence(sk: Sketch, f: int) -> None:
+    """Delete fence f (hosting no pin) without validating; pins whose only fence was f go too."""
+    ends = _ends_at(sk)
+    a, b = sk.fences[f]
+    del sk.fences[f]
+    sk.pins = {v: (h if h < f else h - 1) for v, h in sk.pins.items()}
+    for v in (a, b):
+        if len(ends[v]) == 1:
+            sk.pins.pop(v, None)
+    sk._dirty()
+
+
+def _one_fence_cell(sk: Sketch, rng, greedy: float = 1.0) -> str | None:
+    """Add one fence that closes a new cell: in a notch of the outer boundary or across a
+    bounded face of area >= 0.5 (largest first), in random order of the two. Returns where.
+    greedy < 1 sometimes takes one of the five best placements instead of the best."""
+    grow = {**CELL_GROW, "greedy": greedy}
+    places = ["outer", "split"] if rng.random() < 0.5 else ["split", "outer"]
+    for where in places:
+        if where == "outer":
+            if grow_once(sk, rng, grow, m_max=1, face=sk.face_cycles()[-1]):
+                return where
+            continue
+        for face in sorted((c for c in sk.face_cycles()[:-1] if c[1] >= 0.5), key=lambda c: -c[1])[:3]:
+            if grow_once(sk, rng, {**grow, "target_area": 0.5 * face[1]}, m_max=1, face=face):
+                return where
+    return None
+
+
+def _acceptable(sk: Sketch, n: int, faces_expected: int, reject=None) -> bool:
+    topo = sk.topology()
+    if sk.n != n or len(topo.faces) != faces_expected:
+        return False
+    X = sk.coords()
+    if G.face_areas(X, topo.faces).min(initial=1.0) < MIN_FACE:
+        return False
+    L = np.linalg.norm(X[topo.fences[:, 1]] - X[topo.fences[:, 0]], axis=1)
+    return bool(np.all((L >= FENCE_LEN[0]) & (L <= FENCE_LEN[1]))) and not (reject and reject(sk))
+
+
+def _with_cell(base: Sketch, rng, n: int, faces_expected: int, reject, tries: int = 3):
+    """(where, base plus a one-fence cell) passing `_acceptable`, or None after `tries` cells
+    (the best placement first, then less greedy ones)."""
+    for k in range(tries):
+        trial = base.copy()
+        where = _one_fence_cell(trial, rng, greedy=1.0 if k == 0 else 0.3)
+        if where is not None and _acceptable(trial, n, faces_expected, reject):
+            return where, trial
+    return None
+
+
+def _relocate(sk: Sketch, rng, faces, areas, left, dead_ids, reject=None):
+    hosts = set(sk.pins.values())
+    ends = _ends_at(sk)
+    emap = sk.edge_fence_map()
+    for d in dead_ids:
+        cand = {}
+        cyc = faces[d]
+        for k in range(len(cyc)):
+            f = emap[(cyc[k], cyc[(k + 1) % len(cyc)])]
+            if f in cand or f in hosts or any(_corner(sk, ends, v) for v in sk.fences[f]):
+                continue
+            a, b = sk.fences[f]
+            sides = (left[(a, b)], left[(b, a)])
+            c = removal_cost(sides, areas)
+            if c is not None:
+                cand[f] = (c, sides)
+        for f, (c, sides) in sorted(cand.items(), key=lambda kv: (kv[1][0], rng.random())):
+            base = sk.copy()
+            if not remove_fence(base, rng, f=f):
+                continue
+            trial = _with_cell(base, rng, sk.n, len(faces), reject)
+            if trial is None:
+                continue
+            where, trial = trial
+            sk.P, sk.fences, sk.pins, sk._topo = trial.P, trial.fences, trial.pins, trial._topo
+            shared = all(s != -1 and areas[s] < DEAD_FACE for s in sides)
+            return {"move": "relocate", "where": where, "face_area": round(float(areas[d]), 6),
+                    "cost": round(c, 6), "shared": shared}
+    return None
+
+
+def _repin_targets(sk: Sketch, v: int, w: int, skip: set[int]):
+    """Points on edges of the sketch where a fence end now at v could be pinned instead, nearest
+    first: (distance, host fence, point). Edges of fences in `skip` and edges touching w (the
+    fence's other end) are left out."""
+    X = sk.coords()
+    topo = sk.topology()
+    out = []
+    for h, chain in enumerate(topo.chains):
+        if h in skip:
+            continue
+        for p, q in zip(chain[:-1], chain[1:]):
+            if w in (p, q) or v in (p, q):
+                continue
+            d = X[q] - X[p]
+            ln = float(np.linalg.norm(d))
+            if ln < MIN_EDGE:
+                continue
+            s = float(np.clip(np.dot(X[v] - X[p], d) / (ln * ln), *PIN_T))
+            Q = X[p] + s * d
+            if FENCE_LEN[0] <= np.linalg.norm(Q - X[w]) <= FENCE_LEN[1]:
+                out.append((float(np.linalg.norm(Q - X[v])), h, Q))
+    out.sort(key=lambda t: t[0])
+    return out
+
+
+def _dissolve(sk: Sketch, rng, faces, areas, left, only_faces=None, reject=None):
+    hosts = set(sk.pins.values())
+    ends = _ends_at(sk)
+    near = set().union(*(faces[i] for i in only_faces)) if only_faces is not None else None
+    cand = []
+    for v, fs in ends.items():
+        if not _corner(sk, ends, v) or (near is not None and v not in near):
+            continue
+        for f, g in ((fs[0], fs[1]), (fs[1], fs[0])):
+            u = sk.fences[f][1] if sk.fences[f][0] == v else sk.fences[f][0]
+            if f in hosts or _corner(sk, ends, u):
+                continue                   # f must go cleanly: no pins on it, no second loose end
+            a, b = sk.fences[f]
+            c = removal_cost((left[(a, b)], left[(b, a)]), areas)
+            if c is not None:
+                cand.append((c, rng.random(), v, f, g))
+    cand.sort()
+    for c, _, v, f, g in cand[:6]:
+        w = sk.fences[g][1] if sk.fences[g][0] == v else sk.fences[g][0]
+        for dist, h, Q in _repin_targets(sk, v, w, {f, g})[:4]:
+            trial = sk.copy()
+            nv = trial.add_vertex(*Q)
+            trial.pins[nv] = h
+            trial.fences[g] = [nv if x == v else x for x in trial.fences[g]]
+            _drop_fence(trial, f)
+            try:
+                trial.compact()
+                trial.topology()
+            except (BuildError, G.InvalidTopology):
+                continue
+            got = _with_cell(trial, rng, sk.n, len(faces) + 1, reject)
+            if got is None:
+                continue
+            where, trial = got
+            sk.P, sk.fences, sk.pins, sk._topo = trial.P, trial.fences, trial.pins, trial._topo
+            return {"move": "dissolve", "where": where, "cost": round(c, 6), "repin_dist": round(dist, 4)}
+    return None
+
+
+def face_fill(sk: Sketch, rng, target_faces: int | None = None, dead: float = DEAD_FACE,
+              reject=None) -> dict | None:
+    """Face-aware edit of the sketch of a verified configuration (see above).
+
+    A face below `dead` is relocated first; if no fence of an under-filled face can be moved,
+    a corner joint on one of them is dissolved. Otherwise, with fewer faces than
+    `target_faces`, any corner joint is dissolved. Edits sk in place and returns what was done
+    ({"move", "where", ...}), or returns None with sk untouched. The result is a legal embedding
+    with the same number of fences, the predicted number of faces (relocate: F, dissolve: F + 1),
+    no face below MIN_FACE and every fence's sketch length within FENCE_LEN. `reject(sketch)`
+    may veto candidate results (e.g. ones with the parent's topology); the next one is tried.
+    """
+    faces, areas, left = face_sides(sk)
+    dead_ids = [int(i) for i in np.argsort(areas) if areas[i] < dead]
+    if dead_ids:
+        info = _relocate(sk, rng, faces, areas, left, dead_ids, reject)
+        if info is None:
+            info = _dissolve(sk, rng, faces, areas, left, only_faces=dead_ids, reject=reject)
+            if info is not None:
+                info["move"] = "dissolve@dead"
+        if info is not None:
+            return info
+    if target_faces is not None and len(faces) < target_faces:
+        return _dissolve(sk, rng, faces, areas, left, reject=reject)
+    return None
+
+
 # Structural mutation vocabulary (names used in genomes and by the random mutator):
 #   add_face / remove_face  -- change the face structure (fence count is fixed up afterwards)
 #   split_edge              -- detach a fence end and pin it on another edge (new T-junction)
