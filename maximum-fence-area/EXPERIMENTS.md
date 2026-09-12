@@ -246,3 +246,23 @@ arms `--face-weight 0.25 --seed-elites 6 --focus 8` (both picked n = 14, 15, 16,
 
 Library records improved by these experiments (all re-verified at 50 digits):
 n=16 5.46372 -> 5.46986, n=21 7.67171 -> 7.72264, n=23 8.00000 -> 8.12331, n=25 9.01763 -> 9.01773.
+
+## 6 h run with all three changes (2026-09-12 07:43-13:38, commit a177c21)
+
+`run_overnight.py --budget 6h --gpus 4 --archive-dir ~/fence-results --n-range
+13-16,18-23,25-30,32-39,41-48,50` (33 n, grid-record n left out), run dir `runs/20260912-074322`,
+table in `runs/combined-20260912.txt`.
+
+- No worker deaths, hangs or restarts. 58469 evals, 2474 evals/GPU-h (the 6 h run of 2026-09-11 on
+  the same 4 GPUs: 12990, 549).
+- **All-time library record improved at 24 of 33 n**; the summed record over the 33 n went
+  from 394.651 to 397.477 (+2.826; +0.64 of it from the experiments earlier in the day). All 24
+  re-verified at 50 digits.
+- **n=16 ties the printed record**: 5.53706377675388740289 vs 5.53706+. No n beats its record.
+- Closest remaining gaps: n=16 0, n=21 0.0022, n=14 0.012, n=19 0.022, n=48 0.029, n=47 0.039,
+  n=15 0.042, n=23 0.052.
+- Seeding: 24986 evals descended from seeded minima, 79 children dropped for re-creating their own
+  minimum, 0 verified results that were a seeded minimum again.
+- Run-best improvements by operator: elite 221, face relocate 102, param 54, edit+ 16, sym 15,
+  face dissolve 9, elite-fb 7. Face relocate children stay closest to their parent (-0.046 mean)
+  vs elite children (-0.371).
