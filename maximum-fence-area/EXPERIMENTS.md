@@ -90,3 +90,159 @@ By move: relocate (40 children) mean -0.004, none beat the parent; dissolve into
 - Where the best of n is grid-trivial, the grid lineage is blocked from mutation; the face
   operator may still edit its elites (a dissolve adds a face, so it cannot re-derive the grid
   answer), and such children start their own lineage.
+
+**Integrated A/B #1**, 2026-09-12 06:30, commit 01efbd6 (change 1 only): control
+`--face-weight 0` on GPUs 0-1 vs `--face-weight 0.25` on GPUs 2-3, n = 13, 18, 20, 23, 25, 34,
+`--budget 15m` (~11 min of search), `--seed 0`, empty archives (no library seeding in this
+commit). Pre-registered pass criteria: (1) no worker deaths or hangs and throughput within 15%;
+(2) summed best area over the 6 n not below control by more than 0.1, or at least as many n
+at or above the snapshot record.
+
+| n | lib record | control best | face best |
+|---|---|---|---|
+| 13 | 4.04795 | 4.00000 | 4.00000 |
+| 18 | 6.18182 | 6.00000 | 6.00346 |
+| 20 | 7.00000 | 6.61474 | 6.65482 |
+| 23 | 8.00000 | 8.00000 | 7.38308 |
+| 25 | 9.01763 | 9.00000 | 9.00000 |
+| 34 | 12.99948 | 12.63601 | 12.62038 |
+| sum | | 46.25075 | 45.66174 (-0.589) |
+
+- (1) passed: 725 vs 723 evals/GPU-h, no deaths or hangs.
+- (2) **failed**: -0.589, all of it at n=23, where the control found the grid-plus-sliver 8.0 at
+  minute 9.5; at ~30 evals per n that is one lucky find. The other five n are within +-0.04.
+- Operator level (face arm): the face op made 4 of the arm's 8 run-best improvements with 42 of
+  255 evals; relocate children beat their source 8/32 times, mean +0.014 area. The elite op
+  made 0 improvements with 68 evals (mean -0.145); in the control, elite 0/58 (mean -0.096).
+- Decision: not a pass. One replication, in the regime the final run uses (library seeding on in
+  both arms), with its criterion fixed before it runs: face arm summed best area >= control -
+  0.1 and at least as many n beating the snapshot record. Change 1 passes only if that holds.
+
+**Integrated A/B #2 (replication)**, 2026-09-12 06:43, commit 8fe5de7 (changes 1 + 2), both arms
+`--seed-elites 6` (library seeding, the regime of the final run), `--seed 1`, otherwise as #1.
+Pre-registered: face arm summed best area >= control - 0.1, and at least as many n beating the
+snapshot record.
+
+| n | snapshot record | control best | face best |
+|---|---|---|---|
+| 13 | 4.04795 | 4.04686 | 4.04680 |
+| 18 | 6.18182 | 6.18182 | 6.18182 |
+| 20 | 7.00000 | 7.00000 | 7.00000 |
+| 23 | 8.00000 | 7.72655 | **8.12279** |
+| 25 | 9.01763 | **9.01773** | 9.01650 |
+| 34 | 12.99948 | 12.99911 | 12.99902 |
+| sum | | 46.97207 | 47.36693 (+0.395) |
+
+- Passed both: +0.395, and one n above the snapshot record in each arm (face: n=23 by a
+  dissolve, control: n=25 by +0.0001). The face arm found the same n=23 layout (8.1228) the
+  offline A/B had found (8.1233), independently.
+- Throughput 740 vs 731 evals/GPU-h.
+- **Change 1 validated; setting: `--face-weight 0.25`.**
+
+### 2. Library-seeded archive and focused runs (`--seed-elites`, `--focus`)
+
+- While analysing the replication (which also ran change 2's seeding), the leak check found
+  children that re-converged to a *different* seeded minimum than the one they descend from
+  (another lineage's; 2 verified results in the control arm were the same minimum again: same
+  topology, area within 1e-6). The first change 2 A/B (06:57, `--seed 2`) was stopped after 2
+  minutes, since it would have failed its criterion on this gap.
+- Fix (folded into the change 2 commit, now 42b9279): the seeded minima are known minima of
+  every lineage at n (`Worker._known_minima`, checkpointed): restarts on their topology are
+  repelled from them, polished results matching them never reach the referee, and a result equal
+  to one is a duplicate. Other basins of the same topology stay open. Also: records imported
+  without a lineage now take it from a grid-trivial marker of the same topology, so the grid
+  records of face-short n (22, 23, 32, 36, 38, 39, 41, 50) are seeded and the face operator's
+  dissolve can reach them.
+
+### 3. Adam batch vs topologies per hour (`--batch`, `--verify-policy`)
+
+Pre-registered before any change 3 run:
+- Offline benchmark (`experiments.py batch-bench`, n = 14, 21, 30, 45; 6 topologies per n, half
+  edited library minima, half seed programs; 2 seeds; batches 16384 / 4096 / 2048): a batch B
+  qualifies if its best verified area is on average no more than 0.01 below 16384's on the same
+  topology and seed, with Adam time at most 40% of 16384's. The smallest qualifying B is taken.
+- Integrated A/B (30 min, 2 GPUs per arm, changes 1 and 2 at their validated settings,
+  `--focus 8`): control default batch and `--verify-policy top`; treatment `--batch B
+  --verify-policy worthy`. Passes if (1) no worker deaths or hangs and treatment evals/GPU-h
+  >= 1.5x control, and (2) summed best area >= control - 0.1 with at least as many n beating the
+  snapshot record.
+
+**Integrated A/B**, 2026-09-12 07:00, commit 42b9279, both arms `--face-weight 0.25 --focus 6`
+over the 33 non-grid n (both picked n = 14, 15, 16, 18, 21, 22 from the snapshot), `--seed 3`:
+control `--seed-elites 0` on GPUs 0-1 vs `--seed-elites 6` on GPUs 2-3. Pre-registered: (1) no
+worker deaths or hangs, no verified result that is a seeded minimum again, the same focus set in
+both arms and no grid-record n; (2) summed best area >= control - 0.1 and at least as many n
+beating the snapshot record.
+
+| n | snapshot record | control best | seeded best |
+|---|---|---|---|
+| 14 | 4.73264 | 4.60107 | 4.72659 |
+| 15 | 5.00650 | 4.82185 | 5.00000 |
+| 16 | 5.46372 | 5.40883 | 5.46323 |
+| 18 | 6.18182 | 6.09988 | 6.18182 |
+| 21 | 7.67171 | 7.43526 | **7.69571** |
+| 22 | 8.00000 | 7.24433 | 7.99877 |
+| sum | | 35.61122 | 37.06612 (+1.455) |
+
+- (1) passed: no deaths or hangs; 231 evaluations descended from seeded minima, 2 children were
+  dropped before GPU time for re-creating their own minimum's topology, 0 verified results were a
+  seeded minimum again (2 landed on a seeded topology in another basin, which is allowed).
+- (2) passed: +1.455; the seeded arm beat the snapshot record at n=21 (7.69571 vs 7.67171, world
+  record 7.72489) with a face-operator relocate of a seeded minimum; the control beat none.
+- Throughput 952 vs 981 evals/GPU-h. The unseeded arm spends its time re-deriving what the
+  library already holds: it ends 0.05-0.8 below the snapshot record at every n.
+- **Change 2 validated; settings: `--seed-elites 6`; `--focus` available, off for full runs.**
+
+**Offline batch benchmark**, 2026-09-12 07:13, commit f0b65ea, 4 GPUs, ~9 min, 144 runs (48 per
+batch size), all verified. Delta = best verified area minus 16384's on the same topology and seed.
+
+| n | batch | mean delta | lost / gained > 1e-4 | Adam s | polish CPU s |
+|---|---|---|---|---|---|
+| 14 | 4096 / 2048 | 0.0000 / 0.0000 | 0/0, 0/0 | 1.46 / 1.24 (16384: 3.75) | ~1.6 |
+| 21 | 4096 / 2048 | 0.0000 / -0.0000 | 0/0, 0/0 | 1.39 / 0.89 (4.84) | ~3.2 |
+| 30 | 4096 / 2048 | -0.0228 / -0.0229 | 2/0, 2/0 | 2.10 / 1.21 (7.66) | ~7 |
+| 45 | 4096 / 2048 | -0.0255 / +0.0002 | 2/2, 1/2 | 3.36 / 1.82 (12.49) | ~12 |
+| all | 4096 | **-0.0121** | 4 / 2 | 2.08 (29% of 7.19) | 5.9 |
+| all | 2048 | **-0.0057** | 3 / 2 | 1.29 (18%) | 6.2 |
+
+- By the pre-registered rule, 4096 just misses (-0.0121 < -0.01) and 2048 qualifies: **B = 2048**.
+  The two differ by noise: most topologies reach exactly the same area at every batch size, and
+  the mean is set by a few n=30 and n=45 topologies that lose 0.2-0.3 either way.
+- Polish costs ~6 CPU-s per job at any batch size (8 candidates), well within a 15-process pool
+  per GPU even at 1.3 s of Adam per job.
+
+**Integrated A/B**, 2026-09-12 07:15, commit f0b65ea, `--budget 30m` (~25 min of search), both
+arms `--face-weight 0.25 --seed-elites 6 --focus 8` (both picked n = 14, 15, 16, 18, 21, 22, 29,
+38), `--seed 4`: control default batch (16384) and `--verify-policy top` on GPUs 0-1 vs
+`--batch 2048 --verify-policy worthy` on GPUs 2-3.
+
+| n | snapshot record | control best | lean best |
+|---|---|---|---|
+| 14 | 4.73264 | 4.72096 | 4.73243 |
+| 15 | 5.00650 | 4.99950 | 5.00000 |
+| 16 | 5.46372 | **5.46425** | **5.46986** |
+| 18 | 6.18182 | 6.18182 | 6.18182 |
+| 21 | 7.67171 | **7.69571** | **7.72264** |
+| 22 | 8.00000 | 7.99920 | 8.00000 |
+| 29 | 11.00000 | 10.99951 | 11.00000 |
+| 38 | 15.00000 | 15.00000 | 15.00000 |
+| sum | | 63.06095 | 63.10675 (+0.046) |
+
+- (1) passed: no deaths or hangs; **3507 vs 824 evals/GPU-h (4.3x)**; median GPU time per job
+  0.87 s vs 3.92 s. The GPU loop waited 3 s in 25 min on the CPU pool: polish and referee keep
+  up. The worthy policy skipped 2209 referee calls.
+- (2) passed: +0.046, and both arms beat the snapshot record at n=16 and n=21; the lean arm got
+  closer at both (n=21: 7.72264, 0.0023 below the world record 7.72489).
+- **Change 3 validated; settings: `--batch 2048 --verify-policy worthy`.**
+
+## Summary (2026-09-12)
+
+| change | commit | validated setting | evidence |
+|---|---|---|---|
+| 1. face-aware operator | 4c17910 | `--face-weight 0.25` | offline: children lose half as much area, the only real improvement (n=23); integrated #1 failed on one n (noise), replication passed +0.395 |
+| 2. library seeding, focus | 42b9279 | `--seed-elites 6` (`--focus` off for full runs) | +1.455 summed area, 0 re-converged seeded minima |
+| 3. batch 2048, worthy referee | f0b65ea | `--batch 2048 --verify-policy worthy` | 4.3x evals/GPU-h, same or better areas |
+| defaults | 065fb04 | all of the above on by default | |
+
+Library records improved by these experiments (all re-verified at 50 digits):
+n=16 5.46372 -> 5.46986, n=21 7.67171 -> 7.72264, n=23 8.00000 -> 8.12331, n=25 9.01763 -> 9.01773.
