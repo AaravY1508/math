@@ -334,6 +334,90 @@ def cmd_op_ab_report(args):
                                        f"mean delta {sum(v) / len(v):.3f}" for k, v in sorted(moves.items())))
 
 
+# ---------------------------------------------------------------------------
+# offline batch benchmark: the same topologies at several Adam batch sizes
+# ---------------------------------------------------------------------------
+
+def bench_topologies(lib: Path, n: int, k: int, seed: int) -> list[tuple[str, object, object]]:
+    """k topologies like the ones the search evaluates: half edited library minima (the elite
+    operator's children, 1-3 random edits), half hand-written seed programs. [(label, sketch)]"""
+    import numpy as np
+    from fence import builder as Bd
+    rng = np.random.default_rng(seed)
+    out = []
+    parents = library_parents(lib, n, k)
+    for i in range(k):
+        try:
+            if i % 2 == 0 and parents:
+                p = parents[(i // 2) % len(parents)]
+                edits = [E.EDIT_OPS[int(rng.integers(len(E.EDIT_OPS)))] for _ in range(int(rng.integers(1, 4)))]
+                sk = Bd.build_from_genome(n, rng, {"seed": {"kind": "literal", "sketch": E._config_to_sketch(p["config"])},
+                                                   "edits": edits})
+                out.append((f"{p['name']}+{'+'.join(edits)}", sk))
+            else:
+                g = E.seed_genomes(n)[(i // 2) % len(E.seed_genomes(n))]
+                out.append((f"seed{(i // 2) % len(E.seed_genomes(n))}", E.Program.from_genome(g).propose(n, int(rng.integers(2 ** 31)))))
+        except (Bd.BuildError, G.InvalidTopology):
+            continue
+    return out
+
+
+def cmd_batch_bench(args):
+    import multiprocessing as mp
+
+    from fence import optimize as O
+    ns = _parse_ns(args.ns)
+    bad = sorted(set(ns) & grid_record_ns())
+    if bad:
+        sys.exit(f"refusing n={bad}: their world record is a grid")
+    batches = [int(b) for b in args.batches.split(",")]
+    tasks = [(n, i, label, sk, b, s) for n in ns
+             for i, (label, sk) in enumerate(bench_topologies(Path(args.lib), n, args.topologies, args.seed + n))
+             for s in range(args.seeds) for b in batches]
+    k, m = map(int, args.share.split("/"))
+    pool = mp.get_context("spawn").Pool(args.cpu_procs, initializer=O.pool_init)
+    out = open(args.out, "a")
+    for n, i, label, sk, b, s in tasks[k::m]:
+        topo = sk.topology()
+        cfg = O.OptConfig(batch=b)
+        t0 = time.time()
+        Zs, As, stats = O.adam_stage(topo, sk.coords(), cfg, device="cuda", seed=1000 * s + i)
+        t_adam = time.time() - t0
+        tj = topo.to_json()
+        pol = pool.starmap(O.polish, [(tj, z, cfg.polish_iters) for z in Zs])
+        t_polish = time.time() - t0 - t_adam
+        uniq, _ = O.distinct_candidates(pol)
+        ver = pool.starmap(O.verify_candidate, [(tj, p["z"], n, cfg.tol) for p in uniq[:cfg.verify_top]])
+        best = max((v["area"] for v in ver if v["valid"]), default=None)
+        out.write(json.dumps({"n": n, "topology": i, "label": label, "batch": b, "seed": s, "area": best,
+                              "best_polished": uniq[0]["area"] if uniq else None, "feasible_frac": stats["feasible_frac"],
+                              "t_adam": round(t_adam, 2), "t_polish": round(t_polish, 2),
+                              "t_verify": round(time.time() - t0 - t_adam - t_polish, 2),
+                              "polish_cpu_s": round(sum(p.get("polish_s", 0) for p in pol), 2),
+                              "n_polished": len(pol)}) + "\n")
+        out.flush()
+    pool.terminate()
+
+
+def cmd_batch_bench_report(args):
+    rows = [json.loads(ln) for f in args.files for ln in open(f)]
+    ref_b = max(r["batch"] for r in rows)
+    ref = {(r["n"], r["topology"], r["seed"]): r["area"] for r in rows if r["batch"] == ref_b}
+    print(f"reference: batch {ref_b}; delta = best verified area minus the reference's on the same topology and seed\n")
+    print("| n | batch | runs | verified | mean delta | lost > 1e-4 | gained > 1e-4 | Adam s | polish s (wall) | polish CPU s |")
+    print("|---|---|---|---|---|---|---|---|---|---|")
+    for n in sorted({r["n"] for r in rows}) + ["all"]:
+        for b in sorted({r["batch"] for r in rows}, reverse=True):
+            rs = [r for r in rows if r["batch"] == b and (n == "all" or r["n"] == n)]
+            d = [r["area"] - ref[(r["n"], r["topology"], r["seed"])] for r in rs
+                 if r["area"] is not None and ref.get((r["n"], r["topology"], r["seed"])) is not None]
+            def avg(k):
+                return sum(r[k] for r in rs) / max(1, len(rs))
+            print(f"| {n} | {b} | {len(rs)} | {sum(r['area'] is not None for r in rs)} | "
+                  f"{_fmt(sum(d) / len(d) if d else None, 4)} | {sum(x < -1e-4 for x in d)} | {sum(x > 1e-4 for x in d)} | "
+                  f"{avg('t_adam'):.2f} | {avg('t_polish'):.2f} | {avg('polish_cpu_s'):.1f} |")
+
+
 def _fmt(x, nd=4):
     return "-" if x is None else (f"{x:.{nd}f}" if isinstance(x, float) else str(x))
 
@@ -402,12 +486,25 @@ def main(argv=None):
     ab.add_argument("--only", default=None, help="comma-separated n:parent:child:arm tasks to run")
     abr = sub.add_parser("op-ab-report", help="tables of op-ab result files")
     abr.add_argument("files", nargs="+")
+    bb = sub.add_parser("batch-bench", help="offline benchmark of Adam batch sizes on the same topologies")
+    bb.add_argument("--ns", required=True)
+    bb.add_argument("--lib", required=True)
+    bb.add_argument("--topologies", type=int, default=6, help="per n: half edited library minima, half seed programs")
+    bb.add_argument("--batches", default="16384,4096,2048")
+    bb.add_argument("--seeds", type=int, default=2)
+    bb.add_argument("--share", default="0/1")
+    bb.add_argument("--cpu-procs", type=int, default=15)
+    bb.add_argument("--seed", type=int, default=0)
+    bb.add_argument("--out", required=True)
+    bbr = sub.add_parser("batch-bench-report", help="tables of batch-bench result files")
+    bbr.add_argument("files", nargs="+")
     argv = list(sys.argv[1:] if argv is None else argv)
     extra = argv[argv.index("--") + 1:] if "--" in argv else []     # launch: flags for run_overnight.py
     args = ap.parse_args(argv[:argv.index("--")] if "--" in argv else argv)
     args.extra = extra
     {"snapshot": cmd_snapshot, "launch": cmd_launch, "metrics": cmd_metrics, "op-ab": cmd_op_ab,
-     "op-ab-report": cmd_op_ab_report}[args.cmd](args)
+     "op-ab-report": cmd_op_ab_report, "batch-bench": cmd_batch_bench,
+     "batch-bench-report": cmd_batch_bench_report}[args.cmd](args)
 
 
 if __name__ == "__main__":

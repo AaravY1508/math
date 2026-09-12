@@ -352,6 +352,7 @@ class Mutator:
 
 FACE_WEIGHT = 0.0          # default share of the face-aware operator (worker flag --face-weight)
 SEED_ELITES = 0            # default number of library minima each n's archive starts from (--seed-elites)
+VERIFY_POLICY = "top"      # which polished candidates go to the referee (--verify-policy)
 
 
 def target_faces(base: dict | None) -> int | None:
@@ -708,6 +709,7 @@ class Worker:
         self.nprng = np.random.default_rng(seed)
         self.state: dict[int, NState] = {}
         self.pending: list[dict] = []
+        self.cpu_wait = 0.0                                  # seconds the GPU loop waited for the CPU pool
         self.last_ckpt = time.time()
         self.stop = False
         self._neighbor_cache = {}
@@ -754,7 +756,7 @@ class Worker:
                 "torch_rng": torch.get_rng_state(), "ns": self.ns, "saved": time.time()}
         self._atomic_write(self.ckpt_path, pickle.dumps(blob))
         self.last_ckpt = time.time()
-        self.log({"event": "checkpoint", "reason": reason,
+        self.log({"event": "checkpoint", "reason": reason, "cpu_wait_s": round(self.cpu_wait, 1),
                   "evals": {n: s.evals for n, s in self.state.items()},
                   "best": {n: (round(s.best["area"], 6) if s.best else None) for n, s in self.state.items()}})
 
@@ -1045,8 +1047,13 @@ class Worker:
                     job["n_polish_ok"] = len(good)
                     cfg = job["cfg"]
                     # the best distinct polished candidates go to the (expensive) 50-digit referee;
-                    # nothing counts until it has passed there
+                    # nothing counts until it has passed there. --verify-policy worthy sends only
+                    # those that would change something if they passed
                     tops = uniq[: cfg.verify_top]
+                    if self.args.verify_policy == "worthy":
+                        keep = [p for p in tops if self._worthy(job, p)]
+                        job["verify_skipped"] = len(tops) - len(keep)
+                        tops = keep
                     job["verify"] = [self.pool.apply_async(O.verify_candidate, (job["topo_json"], p["z"], job["n"], cfg.tol))
                                      for p in tops]
                     job["stage"] = "verify"
@@ -1087,6 +1094,29 @@ class Worker:
             if not progressed:
                 time.sleep(0.05)
 
+    def _worthy(self, job: dict, p: dict) -> bool:
+        """Would this polished candidate change anything if the referee passed it? It must beat
+        n's best of this run, the elite of the archive cell it would land in (faces and
+        T-junctions are the topology's, symmetry is read off the polished coordinates: exactly
+        what finalize files it under), or its proposer's best new result since the last
+        stabilization (the minimum that would be indexed)."""
+        n = job["n"]
+        st = self.state[n]
+        a = p["area"]
+        if st.best is None or a > st.best["area"] + 1e-12:
+            return True
+        topo = job["topo"]
+        X = np.asarray(p["z"][: 2 * topo.n_vertices]).reshape(-1, 2)
+        feats = {"faces": len(topo.faces), "tjunctions": len(topo.pins),
+                 "sym": G.rotational_symmetry_order(G.segments_of(X, topo.fences), tol=1e-6)}
+        cell = st.islands[job["island"]].cells.get(feature_key(feats))
+        if cell is None or a / st.base_A > cell.fitness + 1e-12:
+            return True
+        if self.lib:
+            ep = st.epochs.get(job["program"].proposer)
+            return ep is None or ep["best"] is None or a > ep["best"]["area"] + Mn.MINIMUM_EPS
+        return False
+
     def finalize(self, job: dict, vers: list[dict]):
         n = job["n"]
         st = self.state[n]
@@ -1108,6 +1138,7 @@ class Worker:
                "known_on_topology": len(known), "rerolls": job.get("rerolls", 0),
                "excluded_known": job.get("excluded_known", 0), "dup_of": dup,
                "from_library": bool((prog.genome or {}).get("avoid_signature")),
+               "verify_skipped": job.get("verify_skipped", 0),
                "polished": job.get("polished"), "polish_ok": job.get("n_polish_ok"), "adam": job.get("adam"),
                "t_build": round(job["t_build"], 2), "t_gpu": round(job.get("t_gpu", 0), 2), "t_total": round(elapsed, 2),
                "rejected": [v.get("summary", "")[:160] for v in vers if not v.get("valid")][:2]}
@@ -1271,7 +1302,9 @@ class Worker:
                 self.heartbeat()
                 self.drain(block=False)
                 if len(self.pending) >= self.args.max_pending:
+                    t_wait = time.time()
                     self.drain(block="one", max_wait=30)
+                    self.cpu_wait += time.time() - t_wait      # the GPU idles, waiting for polish/referee
                     continue
                 n = self.pick_n()
                 cfg = self._cfg_for(n)
@@ -1361,6 +1394,9 @@ def worker_parser() -> argparse.ArgumentParser:
                     help="re-propose a topology once its proposer has this many minima on it (0: never)")
     ap.add_argument("--face-weight", type=float, default=FACE_WEIGHT,
                     help="share of the face-aware mutation operator (0: off, the previous operator mix)")
+    ap.add_argument("--verify-policy", choices=["top", "worthy"], default=VERIFY_POLICY,
+                    help="top: the verify-top best polished candidates go to the referee; worthy: only those "
+                         "that would raise n's best, their archive cell or their proposer's pending minimum")
     ap.add_argument("--seed-elites", type=int, default=SEED_ELITES,
                     help="start each n's archive from its best k distinct library minima (fresh starts; 0: empty)")
     return ap

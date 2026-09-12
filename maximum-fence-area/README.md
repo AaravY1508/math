@@ -102,6 +102,7 @@ Main `run_overnight.py` flags:
 | `--face-weight` | Share of the face-aware mutation operator (0 = off: the previous operator mix). |
 | `--seed-elites` | Start each n's archive from its k best library minima (0 = off: an empty archive). |
 | `--focus` | Search only the k n of `--n-range` closest to their records (0 = all). |
+| `--verify-policy` | `top` (the best polished candidates go to the referee) or `worthy` (only those that would change something). |
 
 ## How it works
 
@@ -178,7 +179,10 @@ parameters.
   the embedding after every chunk (reverting if it breaks). A Gauss-Newton
   projection then brings residuals to ~1e-15.
 - **Referee:** the best polished candidates go through `verify()` at 50 digits.
-  Only a verified area counts.
+  Only a verified area counts. With `--verify-policy worthy`, a candidate is sent only if
+  passing would change something: raise n's best, take over the archive cell it would land
+  in (predicted from its topology and coordinates, exactly as the referee would count it),
+  or beat its proposer's pending minimum.
 
 ### Stage 4: evolutionary outer loop
 
