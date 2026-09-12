@@ -160,6 +160,8 @@ class Supervisor:
                "--topology-cap", str(a.topology_cap)]
         if a.face_weight is not None:
             cmd += ["--face-weight", str(a.face_weight)]
+        if a.seed_elites is not None:
+            cmd += ["--seed-elites", str(a.seed_elites)]
         if resume:
             cmd.append("--resume")
         # single-threaded BLAS in the worker and (inherited) in its CPU polish pool: the pool
@@ -260,6 +262,13 @@ class Supervisor:
             resume = False
         self.minima_dir = self._minima_dir()
         self.records = self._load_records(ns)
+        self.focus = None
+        if a.focus and not a.resume:
+            from fence.evolve import focus_ns
+            self.focus = focus_ns(ns, self.baselines, self.records, a.focus)
+            print(f"  focus: the {len(self.focus)} n closest to their records (record - best): " +
+                  ", ".join(f"{n} ({g:.4f})" for n, g in self.focus.items()), flush=True)
+            ns = sorted(self.focus)
         self.slices = old["slices"] if a.resume else self.assign(ns)
         if not all(self.slices):
             # fewer n than GPUs: a worker without any n would only crash and be restarted
@@ -286,7 +295,7 @@ class Supervisor:
                         "budget_s": budget if not a.resume else old["budget_s"], "session_budget_s": budget,
                         "deadline": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(self.T_end)),
                         "gpus": a.gpus, "slices": self.slices, "args": vars(a), "git_commit": commit,
-                        "supervisor_pid": os.getpid(), "gpu_info": self.gpu_info,
+                        "supervisor_pid": os.getpid(), "gpu_info": self.gpu_info, "focus": self.focus,
                         "minima_dir": str(self.minima_dir) if self.minima_dir else None}
         self.restarts = {i: 0 for i in range(a.gpus)}
         self.save_runinfo()
@@ -442,6 +451,11 @@ def main(argv=None):
                     help="re-propose a topology once its proposer has this many minima on it (0: never)")
     ap.add_argument("--face-weight", type=float, default=None,
                     help="share of the face-aware mutation operator (default: fence.evolve's; 0 = off)")
+    ap.add_argument("--seed-elites", type=int, default=None,
+                    help="start each n's archive from its k best library minima (default: fence.evolve's; 0 = off)")
+    ap.add_argument("--focus", type=int, default=0,
+                    help="search only the k n of --n-range closest to their records (grid records and ties "
+                         "left out; 0 = all of --n-range)")
     args = ap.parse_args(argv)
     args.budget_given = args.budget is not None
     args.gpu_ids = [int(g) for g in args.gpu_ids.split(",")] if args.gpu_ids else list(range(args.gpus))

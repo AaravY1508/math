@@ -41,6 +41,8 @@ Modelled on OpenEvolve / ShinkaEvolve (LLM-guided program evolution):
       `is_grid_trivial`) is not mutated at n again, for as long as n's best is itself
       grid-trivial; an n whose best ties a grid-trivial record keeps only a small share of
       its worker's time, and below-record n >= LARGE_N get more.
+    - with --seed-elites k a fresh worker starts each n's islands from its k best library
+      minima; no child may re-create a seeded minimum's topology (`_propose`).
 
 This module also contains the per-GPU worker (`python -m fence.evolve ...`),
 which the supervisor in run_overnight.py launches once per GPU.
@@ -349,6 +351,7 @@ class Mutator:
 
 
 FACE_WEIGHT = 0.0          # default share of the face-aware operator (worker flag --face-weight)
+SEED_ELITES = 0            # default number of library minima each n's archive starts from (--seed-elites)
 
 
 def target_faces(base: dict | None) -> int | None:
@@ -447,6 +450,8 @@ class RandomMutator(Mutator):
                 g = {"seed": {"kind": "literal", "sketch": sketch},
                      "grow": copy.deepcopy((parent.genome or {}).get("grow", {})), "edits": [],
                      "origin_note": src["note"], "face_edit": info}
+                if src.get("avoid_signature"):
+                    g["avoid_signature"] = src["avoid_signature"]
                 # a child of a lineage blocked at n starts its own lineage, so it can be evolved on
                 return Program.from_genome(g, parent=parent.pid, generation=parent.generation + 1,
                                            origin=f"random:face:{info['move']}-{info['where']}:{src['note']}",
@@ -484,10 +489,13 @@ class RandomMutator(Mutator):
             tag = f"sym:{g['sym']}"
         elif op == "elite":
             src = r.choice(elites)
+            avoid = src.get("avoid_signature")          # a library minimum: never just re-optimize it
             g = {"seed": {"kind": "literal", "sketch": src["sketch"]},
                  "grow": copy.deepcopy((parent.genome or {}).get("grow", {})),
-                 "edits": [r.choice(EDIT_OPS) for _ in range(r.choice([0, 1, 1, 2, 2, 3]))],
+                 "edits": [r.choice(EDIT_OPS) for _ in range(r.choice([1, 1, 2, 2, 3] if avoid else [0, 1, 1, 2, 2, 3]))],
                  "origin_note": src["note"]}
+            if avoid:
+                g["avoid_signature"] = avoid
             tag = f"{elite_tag}:{src['note']}:{'+'.join(g['edits']) or 'reopt'}"
             proposer = src.get("proposer") or parent.proposer    # the child is built from the elite's layout
         else:
@@ -628,6 +636,8 @@ class NState:
     epochs: dict = field(default_factory=dict)
     # (proposer, topology signature) -> steered attempts on that topology that found nothing new
     barren: dict = field(default_factory=dict)
+    # library minima this run's archive was seeded with (slim, as in Worker.known): known to every lineage
+    seeded_minima: list = field(default_factory=list)
 
     @property
     def base_A(self) -> float:
@@ -652,6 +662,19 @@ def priority(n: int, base: dict | None) -> float:
 def trivial_tie(n: int, base: dict | None, best_area: float | None) -> bool:
     """n's best is a grid-trivial answer that already ties the record (n = 12, 17, 24, ...)."""
     return base is not None and is_grid_trivial(best_area, n) and classify(best_area, base) == "TIES"
+
+
+def focus_ns(ns, baselines: dict, records: dict, k: int) -> dict[int, float]:
+    """The k n of `ns` closest to their published record, as {n: record - best area} (best from
+    the minima library). Left out: n whose record is a grid or other trivial answer (likely
+    optimal), n already tying or beating their record, and n with no verified area yet."""
+    gaps = {}
+    for n in ns:
+        b, a = baselines.get(n), records.get(n)
+        if b is None or b["status"] == "trivial" or a is None or classify(a, b) in ("TIES", "BEATS"):
+            continue
+        gaps[n] = b["A"] - a
+    return dict(sorted(sorted(gaps.items(), key=lambda kv: kv[1])[:k]))
 
 
 def schedule_weight(n: int, base: dict | None, best_area: float | None) -> float:
@@ -701,6 +724,9 @@ class Worker:
                 self.state[n] = NState(n=n, baseline=self.baselines.get(n),
                                        islands=[Archive() for _ in range(args.islands)])
         self._load_library()
+        if not resumed and self.lib and args.seed_elites > 0:
+            for n in self.ns:
+                self._seed_archive(n, args.seed_elites)
         self.mutator = make_mutator(args.mutator, self.rng, face_weight=args.face_weight)
         self.log({"event": "worker_start", "ns": self.ns, "resumed": resumed, "pid": os.getpid(),
                   "deadline": self.deadline, "mutator": args.mutator, "minima_dir": args.minima_dir})
@@ -746,6 +772,8 @@ class Worker:
             for name in ("epochs", "barren"):
                 if name not in s.__dict__:
                     setattr(s, name, {})
+            if "seeded_minima" not in s.__dict__:
+                s.seeded_minima = []
             for isl in s.islands:
                 for e in isl.cells.values():
                     if not e.program.proposer:
@@ -768,6 +796,36 @@ class Worker:
                       "minima": {n: sum(map(len, self.known[n].values())) for n in self.ns},
                       "trivial_lineages": {n: len(self.trivial[n]) for n in self.ns},
                       "records": self.records})
+
+    def _seed_archive(self, n: int, k: int):
+        """Start n's islands from its k best distinct library minima (the all-time record first),
+        spread over the islands, so the run continues where earlier ones stopped. Their programs
+        replay the minimum's layout and carry its topology signature, which no child may re-create:
+        their elite children get at least one edit and _propose re-rolls or drops the rest. The
+        seeded minima are known minima of every lineage at n (_known_minima), so no child is
+        steered back onto one of them either."""
+        st = self.state[n]
+        placed = []
+        for doc in self.lib.best(n, 4 * k):
+            if len(placed) >= k:
+                break
+            cfg = doc["config"]
+            ver = cfg["verification"]
+            segs = np.array([[float(v) for v in s] for s in cfg["segments"]])
+            feats = {"faces": ver["n_faces"], "tjunctions": ver["n_tjunctions"],
+                     "sym": G.rotational_symmetry_order(segs, tol=1e-6)}
+            genome = {"seed": {"kind": "literal", "sketch": _config_to_sketch(cfg)}, "avoid_signature": doc["signature"]}
+            prog = Program.from_genome(genome, origin=f"library:{doc['name']}", proposer=doc["proposer"])
+            area = float(doc["area"])
+            if st.islands[len(placed) % len(st.islands)].try_insert(Elite(prog, area / st.base_A, area, feats, cfg)):
+                placed.append([doc["name"], round(area, 6)])
+                topo, X = G.config_from_json(cfg)
+                form = Mn.canonical_form(topo)
+                st.seeded_minima.append({"name": f"seeded:{doc['name']}", "k": -1, "area": area,
+                                         "signature": form.signature, "canon_coords": X[form.orders[0]].tolist()})
+        if placed:
+            st.seeded = len(seed_genomes(n))    # skip the initial sweep of the hand-written seed programs
+        self.log({"event": "archive_seeded", "n": n, "elites": placed})
 
     # -- scheduling ----------------------------------------------------------
     def _n_best_area(self, n: int) -> float | None:
@@ -807,7 +865,8 @@ class Worker:
                 if with_blocked or e.program.proposer not in blocked:
                     out.append({"sketch": _config_to_sketch(e.config), "note": f"n{n}:{e.area:.4f}",
                                 "proposer": e.program.proposer, "n": n, "area": e.area,
-                                "blocked": e.program.proposer in blocked})
+                                "blocked": e.program.proposer in blocked,
+                                "avoid_signature": (e.program.genome or {}).get("avoid_signature")})
         for m in (n - 1, n + 1, n):
             p = self.run_dir / "best" / f"n{m:03d}.json"
             now = time.time()
@@ -896,13 +955,22 @@ class Worker:
             raise Bd.BuildError(f"program returned {topo.n} fences")
         return sk, topo
 
+    def _known_minima(self, n: int, proposer: str, sig: str | None) -> list[dict]:
+        """Minima a result on topology `sig` must not be: the proposer's own indexed minima and the
+        library minima n's archive was seeded with (of any lineage), each once."""
+        if sig is None:
+            return []
+        own = [m for m in self.known[n].get(proposer, []) if m["signature"] == sig]
+        return own + [m for m in self.state[n].seeded_minima if m["signature"] == sig
+                      and not any(Mn.same_minimum(o, sig, m["area"]) for o in own)]
+
     def _known_on(self, n: int, proposer: str, topo: G.Topology):
-        """(canonical form of topo, the proposer's indexed minima on that same topology)."""
+        """(canonical form of topo, the known minima on that same topology: _known_minima)."""
         try:
             form = Mn.canonical_form(topo)
         except G.InvalidTopology:
             return None, []
-        return form, [m for m in self.known[n].get(proposer, []) if m["signature"] == form.signature]
+        return form, self._known_minima(n, proposer, form.signature)
 
     def _exhausted(self, n: int, proposer: str, sig: str, known: list) -> bool:
         cap = self.args.topology_cap
@@ -911,14 +979,18 @@ class Worker:
     def _propose(self, n: int, child: Program, seed: int):
         """Build the child's sketch and find its proposer's known minima on that topology.
 
-        A topology the proposer has exhausted gets up to two re-proposals (a new rng seed,
-        plus one more structural edit for genome programs) before any GPU time is spent on
-        it. Otherwise the GPU stage is steered away from the known minima (job["avoid"]).
+        A topology the proposer has exhausted, or the library minimum a child of a seeded elite
+        must not re-create (genome["avoid_signature"]), gets up to two re-proposals (a new rng
+        seed, plus one more structural edit for genome programs) before any GPU time is spent on
+        it; a child still re-creating that minimum is dropped (BuildError). Otherwise the GPU
+        stage is steered away from the known minima (job["avoid"]).
         """
         sk, topo = self._build(n, child, seed)
         form, known = self._known_on(n, child.proposer, topo)
+        avoid = (child.genome or {}).get("avoid_signature")
         rerolls = 0
-        while form is not None and self._exhausted(n, child.proposer, form.signature, known) and rerolls < 2:
+        while form is not None and rerolls < 2 and (
+                form.signature == avoid or self._exhausted(n, child.proposer, form.signature, known)):
             rerolls += 1
             cand = child
             if child.genome is not None:
@@ -932,6 +1004,8 @@ class Worker:
                 continue
             child, sk, topo = cand, sk2, topo2
             form, known = self._known_on(n, child.proposer, topo)
+        if avoid is not None and form is not None and form.signature == avoid:
+            raise Bd.BuildError("child re-creates the library minimum it was seeded from")
         return child, sk, topo, form, known, rerolls
 
     def run_gpu(self, job: dict, cfg: O.OptConfig):
@@ -965,8 +1039,7 @@ class Worker:
                     good = [p for p in res if p.get("ok")]
                     # results that polished back into a known minimum of this topology are not new
                     # (looked up now, not at proposal time: the proposer may have stabilized since)
-                    known = [m["area"] for m in self.known[job["n"]].get(job["program"].proposer, [])
-                             if m["signature"] == job.get("sig")]
+                    known = [m["area"] for m in self._known_minima(job["n"], job["program"].proposer, job.get("sig"))]
                     uniq, job["excluded_known"] = O.distinct_candidates(res, known, Mn.MINIMUM_EPS)
                     job["polished"] = [round(p["area"], 8) for p in uniq[:5]]
                     job["n_polish_ok"] = len(good)
@@ -1034,6 +1107,7 @@ class Worker:
                "faces": len(job["topo"].faces), "tjunctions": len(job["topo"].pins), "signature": sig,
                "known_on_topology": len(known), "rerolls": job.get("rerolls", 0),
                "excluded_known": job.get("excluded_known", 0), "dup_of": dup,
+               "from_library": bool((prog.genome or {}).get("avoid_signature")),
                "polished": job.get("polished"), "polish_ok": job.get("n_polish_ok"), "adam": job.get("adam"),
                "t_build": round(job["t_build"], 2), "t_gpu": round(job.get("t_gpu", 0), 2), "t_total": round(elapsed, 2),
                "rejected": [v.get("summary", "")[:160] for v in vers if not v.get("valid")][:2]}
@@ -1114,10 +1188,10 @@ class Worker:
 
     # -- minima library -------------------------------------------------------------
     def _dup_of(self, n: int, proposer: str, sig: str | None, area: float | None) -> str | None:
-        """Name of the proposer's indexed minimum this result re-converged to, if any."""
+        """Name of the known minimum (_known_minima) this result re-converged to, if any."""
         if sig is None or area is None:
             return None
-        return next((m["name"] for m in self.known[n].get(proposer, []) if Mn.same_minimum(m, sig, area)), None)
+        return next((m["name"] for m in self._known_minima(n, proposer, sig) if Mn.same_minimum(m, sig, area)), None)
 
     def _track_epoch(self, n: int, prog: Program, area, cfg, sig, dup):
         """Detect stabilization: a proposer's best new result at n that its next stable_after
@@ -1287,6 +1361,8 @@ def worker_parser() -> argparse.ArgumentParser:
                     help="re-propose a topology once its proposer has this many minima on it (0: never)")
     ap.add_argument("--face-weight", type=float, default=FACE_WEIGHT,
                     help="share of the face-aware mutation operator (0: off, the previous operator mix)")
+    ap.add_argument("--seed-elites", type=int, default=SEED_ELITES,
+                    help="start each n's archive from its best k distinct library minima (fresh starts; 0: empty)")
     return ap
 
 

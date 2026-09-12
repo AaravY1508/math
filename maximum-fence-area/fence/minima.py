@@ -280,6 +280,30 @@ class MinimaLibrary:
         _atomic_write(self._pdir(proposer) / f"N{n}.{k}.json", doc)
         return True, doc
 
+    def best(self, n: int, k: int) -> list[dict]:
+        """Up to k verified configurations for n with distinct topologies, largest area first:
+        the all-time record and the proposers' indexed minima. Each is {"name", "area",
+        "proposer", "signature", "config"}; a record whose lineage is unknown (runs before
+        lineages were tracked) takes it from an indexed minimum or a grid-trivial marker of the
+        same topology, or is left out."""
+        docs = [{"name": m["name"], "area": float(m["area"]), "proposer": p, "signature": m["signature"],
+                 "config": m["config"]} for p, ms in self.minima(n).items() for m in ms]
+        rec = self.record(n)
+        if rec is not None:
+            sig = canonical_form(G.config_from_json(rec["config"])[0]).signature
+            prop = rec.get("proposer") or rec["config"].get("proposer") or \
+                next((d["proposer"] for d in docs if d["signature"] == sig), None) or \
+                next((p for p in sorted(self.trivial_proposers(n)) if self._trivial_signature(p, n) == sig), None)
+            if prop:
+                docs.insert(0, {"name": f"record:N{n}", "area": float(rec["area"]), "proposer": prop,
+                                "signature": sig, "config": rec["config"]})
+        out, seen = [], set()
+        for d in sorted(docs, key=lambda d: -d["area"]):       # stable: the record first on a tie
+            if d["signature"] not in seen and d["config"].get("verification", {}).get("valid"):
+                seen.add(d["signature"])
+                out.append(d)
+        return out[:k]
+
     # -- grid-trivial markers -------------------------------------------------------
     def mark_trivial(self, proposer: str, n: int, config: dict, meta=None) -> None:
         p = self._pdir(proposer) / f"N{n}.trivial.json"
@@ -292,6 +316,14 @@ class MinimaLibrary:
 
     def trivial_proposers(self, n: int) -> set[str]:
         return {f.parent.name for f in (self.root / "proposers").glob(f"*/N{n}.trivial.json")}
+
+    def _trivial_signature(self, proposer: str, n: int) -> str | None:
+        """Topology signature of the grid-trivial answer a proposer's search at n stabilized on."""
+        d = _read(self._pdir(proposer) / f"N{n}.trivial.json")
+        try:
+            return canonical_form(G.config_from_json(d["config"])[0]).signature
+        except (TypeError, KeyError, ValueError, G.InvalidTopology):
+            return None
 
     # -- all-time records -------------------------------------------------------------
     def record(self, n: int) -> dict | None:

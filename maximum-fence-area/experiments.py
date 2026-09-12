@@ -129,10 +129,16 @@ def run_metrics(run_dir: Path, lib_before: Path | None) -> dict:
     base = E.load_baselines()
     info = json.loads((run_dir / "run.json").read_text())
     evals, starts, bests_ev = [], {}, defaultdict(list)
+    recreated, seeded = 0, {}
     for p in sorted((run_dir / "logs").glob("worker*.jsonl")):
         for ln in open(p):
             if '"event": "eval"' in ln:
                 evals.append(json.loads(ln))
+            elif '"event": "propose_failed"' in ln and "re-creates the library minimum" in ln:
+                recreated += 1
+            elif '"event": "archive_seeded"' in ln:
+                r = json.loads(ln)
+                seeded[r["n"]] = {(name, a) for name, a in r["elites"]}
             elif '"event": "worker_start"' in ln:
                 r = json.loads(ln)
                 starts.setdefault(r["gpu"], r["ts"])
@@ -182,7 +188,23 @@ def run_metrics(run_dir: Path, lib_before: Path | None) -> dict:
                     c["beat_source"] += 1
     span_h = max(1e-9, (max(e["ts"] for e in evals) - t0) / 3600) if evals else 1e-9
     ngpu = len(info["slices"])
+    lib_evals = [e for e in evals if e.get("from_library")]
+    # evaluated results that are a seeded minimum again (same topology, area within MINIMUM_EPS: the
+    # library's own "same minimum"; the guards should make this 0), and results merely on a seeded
+    # minimum's topology (another basin of it: allowed). Seeded minima come from the start snapshot.
+    leaks = same_topology = None
+    if seeded and lib_before is not None:
+        from fence import minima as Mn
+        L = Mn.MinimaLibrary(lib_before)
+        mins = {n: [d for d in L.best(n, 100) if (d["name"], round(d["area"], 6)) in names] for n, names in seeded.items()}
+        on = [(e, d) for e in evals if e["area"] is not None for d in mins.get(e["n"], []) if e.get("signature") == d["signature"]]
+        same_topology = len({id(e) for e, _ in on})
+        leaks = len({id(e) for e, d in on if Mn.same_minimum(d, d["signature"], e["area"])})
     return {"run": run_dir.name, "commit": info.get("git_commit"), "gpus": ngpu, "span_h": span_h,
+            "library": {"evals": len(lib_evals), "dropped_recreations": recreated, "leaks": leaks,
+                        "same_topology": same_topology,
+                        "beat_lib": sum(1 for e in lib_evals if e["area"] is not None and
+                                        (per_n.get(e["n"], {}).get("lib_before") or 1e9) < e["area"] - 1e-9)},
             "evals": len(evals), "evals_per_gpu_h": len(evals) / span_h / max(1, ngpu),
             "per_n": per_n, "ops": {k: dict(v) for k, v in ops.items()},
             "delta": {k: (sum(v) / len(v) if v else None) for k, v in delta.items()},
@@ -329,6 +351,11 @@ def cmd_metrics(args):
             dd = f"{r['dead']} ({r['deficit']:.3f})" if r.get("faces") else "-"
             print(f"| {n} | {r['record']:.5f} | {_fmt(r.get('lib_before'), 5)} | {_fmt(r['best'], 5)} | "
                   f"{_fmt(r.get('gap'), 5)} | {ft} | {dd} | {r['evals']} | {_fmt(r['last_improve_min'], 1)} |")
+        lb = m["library"]
+        print(f"\nchildren of seeded library minima: {lb['evals']} evals, {lb['beat_lib']} beat the library record, "
+              f"{lb['dropped_recreations']} dropped for re-creating their own minimum's topology; "
+              f"verified results that are a seeded minimum again: {'-' if lb['leaks'] is None else lb['leaks']} "
+              f"(on a seeded minimum's topology, other basins allowed: {'-' if lb['same_topology'] is None else lb['same_topology']})")
         print("\n| operator | evals | verified | run-best wins | beat library record | beat source | mean area - source |")
         print("|---|---|---|---|---|---|---|")
         for op, c in sorted(m["ops"].items(), key=lambda kv: -kv[1]["evals"]):

@@ -100,6 +100,8 @@ Main `run_overnight.py` flags:
 | `--stable-after` | Evaluations of a proposer at n without improvement before its best new result counts as a stabilized minimum (default 6). |
 | `--topology-cap` | Re-propose a topology once its proposer has this many minima on it (default 3; 0 = never). |
 | `--face-weight` | Share of the face-aware mutation operator (0 = off: the previous operator mix). |
+| `--seed-elites` | Start each n's archive from its k best library minima (0 = off: an empty archive). |
+| `--focus` | Search only the k n of `--n-range` closest to their records (0 = all). |
 
 ## How it works
 
@@ -262,6 +264,12 @@ a child re-seeded from an elite joins the elite's lineage.
 - **Records.** `minima/records/N<n>.json` holds the best verified configuration for
   n over all runs, so scheduling knows each n's standing from the first minute.
   `import-run` builds records from a run made before the library existed.
+- **Archive seeding** (`--seed-elites k`). A fresh worker starts each n's islands from
+  the k best library minima with distinct topologies (the record first) instead of an
+  empty archive, and skips the initial sweep of hand-written seed programs, so progress
+  carries over between runs. No child may just re-optimize a seeded minimum. Its elite
+  children get at least one edit, and any child that still rebuilds the minimum's
+  topology is re-proposed (twice at most) or dropped before GPU time is spent.
 
 ### Overnight runner
 
@@ -275,6 +283,11 @@ schedules with:
 
 Within a worker, time is shared fairly by these weights, and n within 5% of the
 record get up to 2× share.
+
+`--focus k` narrows the run to the k n of `--n-range` closest to their records (record
+minus the library's best). It leaves out n whose record is a grid (likely optimal) and n
+that already tie or beat their record, so the budget goes to a few n instead of being
+spread thin.
 
 Operational behavior:
 - **Logging:** each worker writes JSONL to `runs/<ts>/logs/worker<i>.jsonl`, with
