@@ -266,3 +266,71 @@ table in `runs/combined-20260912.txt`.
 - Run-best improvements by operator: elite 221, face relocate 102, param 54, edit+ 16, sym 15,
   face dissolve 9, elite-fb 7. Face relocate children stay closest to their parent (-0.046 mean)
   vs elite children (-0.371).
+
+## Day 2 (2026-09-13)
+
+Diagnostics first, on the 6 h run's 58469 evaluations and the library as it stands
+(`minima-snapshots/20260913`, 6005 files). Three of the leads did not survive contact with the
+data, and are recorded here so they are not re-run:
+
+- **The local optimizer is saturated, not stale.** Re-optimizing each n's library-record topology
+  at `batch 16384, steps 4000, topk 16, verify_top 4` against production `2048 / 1000 / 8`:
+  identical verified areas to 1e-15 at **24 of 24 n**. An offline sweep on search-like topologies
+  (`bench_topologies`, n = 14, 21, 30, 45, 6 topologies x 2 seeds) also finds no cheap throughput:
+  600 steps instead of 1000 saves **4%** of Adam time (about 90% of a job's GPU time is fixed
+  overhead -- TorchTopology build, CUDA-graph capture, the eager multiplier updates -- not the
+  steps), and batch 1024 saves 27% but loses area at more topologies than it gains (5 lost / 3
+  gained > 1e-4). The +-0.004 spread across 600 / 1500 / 4096 steps and batches is basin-flip
+  noise, not a trend. No change made.
+- **The GPU is the bottleneck, not the CPU pool.** Over the 6 h run `t_gpu` summed to 20.85 h of
+  23.66 GPU-h (88% of wall) and the GPU loop waited 4752 s on the CPU pool (5.6%), not the 0.2%
+  the 25-minute change-3 A/B measured. `verify_top = 3` is nearly free to cut -- the verified area
+  came from the best polished candidate in 21825 of 21832 verified evaluations -- but it buys only
+  a few percent, so it is not worth a change slot.
+- **"12.41 of area lost to dead faces" is arithmetic, not opportunity.** Deficit is `F - area` by
+  definition, so a record of 4.16199 on 5 faces carries 0.838 of deficit itself. Summed over the
+  33 n the records must carry **>= 19.90**; ours is 12.41, and at 20 of 33 n our deficit is
+  already below the record's lower bound. The only recoverable quantity is the 5.63 gap.
+
+Confirmed: 58.8% of evaluations end with every polished candidate skipped by `--verify-policy
+worthy` (they would change nothing), 37.3% verify, 2.3% polish to nothing. The pipeline is healthy.
+
+### 4. Growth paths of three or more fences (`--m3-growth`)
+
+`arc_points(Q, P, m, ell)` orders the m - 1 interior points of a path from Q to P. Two places
+used that order backwards, and both are reachable only when there are at least two interior
+points, i.e. m >= 3: `sample_growth` closed the proposed cell as `chain + inner[::-1]` (a bowtie
+of signed area ~0, so the candidate lost the cost comparison or was dropped by `area <= 0.05`),
+and `grow_once` built it with `add_path_points(P, Q, inner)` (the path crosses itself and
+`topology()` rejects the step). So no growth step has ever added a 3-fence cell, although three
+unit fences on a unit-long piece of boundary are exactly a unit square -- the densest cell there
+is, and the only one-step move that can add a near-full face.
+
+**Offline**, 2026-09-13, over the library records of n = 13, 16, 19, 21, 23, 26, 30, 35, 44, 48,
+1200 outer growth steps restricted to m = 3:
+
+| | built | area added |
+|---|---|---|
+| today (M3_GROWTH off) | **0 / 1200** | - |
+| fixed | 1196 / 1200 | mean **1.170**, 1169 of them >= 0.9 |
+| either, default m_weights | 1200 / 1200 | mean 0.512, max 0.872, **none >= 0.9** |
+
+The default-mix rows are identical because the bowtie area makes m = 3 lose the cost comparison
+before it can be built: both mistakes have to go together. On the same records, outer growth
+today proposes m = 2 paths almost exclusively (13861 of 15398 surviving candidates, mean area
+0.318); 8309 of 9969 m = 3 candidates are discarded for "area <= 0.05".
+
+**Integrated A/B**, 2026-09-13 07:0x, commit 04a3bb9, worktree `erich-friedman-exp/m3`, from
+snapshot `minima-snapshots/20260913`. Control `--m3-growth off` on GPUs 0-1 vs treatment
+`--m3-growth on` on GPUs 2-3; n = 13, 20, 23, 32, 34, 39, 44, 50 (small, face-short and
+large-gap); `--budget 30m`, `--seed 10`, changes 1-3 at their validated defaults in both arms.
+
+Pre-registered pass criteria, all three must hold:
+1. no worker deaths or hangs, and treatment evals/GPU-h >= 0.85 x control;
+2. **mechanism**: mean fill (verified area / faces) over all verified evaluations of the arm,
+   treatment >= control + 0.02 (thousands of evaluations, so not noise-dominated);
+3. summed best area over the 8 n >= control - 0.10, and at least as many n at or above the
+   snapshot record.
+
+At 30 minutes criterion 3 is a non-inferiority check; the case for the change is the offline
+result above.
