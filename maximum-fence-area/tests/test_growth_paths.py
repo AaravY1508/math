@@ -24,8 +24,12 @@ from fence import geometry as G
 
 @pytest.fixture
 def m3(monkeypatch):
-    """Turn the fix on for one test."""
+    """Pin the fix on, whatever the module default is."""
     monkeypatch.setattr(Bd, "M3_GROWTH", True)
+
+
+def test_the_validated_default_is_on():
+    assert Bd.M3_GROWTH is True            # EXPERIMENTS.md change 4
 
 
 def total_area(sk: Bd.Sketch) -> float:
@@ -49,7 +53,8 @@ def test_arc_points_of_three_unit_fences_on_a_unit_chord_is_a_unit_square():
     assert G.polygon_signed_area(np.array([P, Q, A2, A1])) == pytest.approx(0.0, abs=1e-9)
 
 
-def test_three_fence_growth_never_builds_without_the_fix():
+def test_three_fence_growth_never_builds_without_the_fix(monkeypatch):
+    monkeypatch.setattr(Bd, "M3_GROWTH", False)
     rng = np.random.default_rng(0)
     built = 0
     for k in range(40):

@@ -103,6 +103,8 @@ Main `run_overnight.py` flags:
 | `--seed-elites` | Start each n's archive from its k best library minima (default 6; 0 = off: an empty archive). |
 | `--focus` | Search only the k n of `--n-range` closest to their records (0 = all). |
 | `--verify-policy` | `worthy` (default: only polished candidates that would change something go to the referee) or `top` (the best ones always). |
+| `--m3-growth` | `on` (default): a growth step can add a cell of three fences -- on a unit-long piece of boundary, a unit square. `off` restores the previous behaviour, in which every path of 3 or more fences was scored as a bowtie and laid down in an order that crossed itself, so none was ever built. |
+| `--op-mix` | `legacy` (default): the operator weights every run so far used. `tuned` re-weights them by measured win rate; it did not pass its A/B (EXPERIMENTS.md change 5). |
 
 ## How it works
 

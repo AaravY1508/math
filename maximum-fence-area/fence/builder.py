@@ -295,9 +295,11 @@ def pinwheel_in_ring(k: int, K: int, s: float = 0.35, rot: float = 0.0) -> Sketc
 
 # Growth paths of m >= 3 fences were laid down and scored in the wrong vertex order (see
 # grow_once and sample_growth below), so no growth step ever added a 3-fence cell. M3_GROWTH
-# turns the fix on; False reproduces the previous behaviour exactly, and every m <= 2 path is
-# identical either way (reversing a list of at most one interior point is a no-op).
-M3_GROWTH = False
+# turns the fix on (validated, EXPERIMENTS.md change 4: mean fill of a verified result rose
+# from 0.868 to 0.911 at equal throughput). False reproduces the previous behaviour exactly,
+# and every m <= 2 path is identical either way (reversing a list of at most one interior
+# point is a no-op).
+M3_GROWTH = True
 
 DEFAULT_GROW = {
     "target_area": 0.95,     # desired area of each new cell
