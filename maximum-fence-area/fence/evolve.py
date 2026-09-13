@@ -354,6 +354,12 @@ class Mutator:
 FACE_WEIGHT = 0.25         # share of the face-aware operator (worker flag --face-weight)
 SEED_ELITES = 6            # library minima each n's archive starts from (--seed-elites)
 VERIFY_POLICY = "worthy"   # which polished candidates go to the referee (--verify-policy)
+OP_MIX = "legacy"          # mutation operator weights (--op-mix); "legacy" = the previous mix
+
+# Probability that a job injects a fresh hand-written seed program once the initial sweep is done.
+# Measured over the 6 h run of 2026-09-12: seed-program evaluations won 2.2 run-bests per 1000,
+# against 11.7 for `elite` and 14.2 for the face operator's relocate.
+SEED_INJECT = {"legacy": 0.04, "tuned": 0.015}
 
 
 def target_faces(base: dict | None) -> int | None:
@@ -372,13 +378,22 @@ class RandomMutator(Mutator):
     name = "random"
     BASE_OPS = [("jitter", 0.25), ("add_edit", 0.12), ("remove_edit", 0.05), ("seed", 0.08), ("symmetry", 0.08),
                 ("elite", 0.36), ("fresh", 0.06)]
+    # Re-weighted against run-best wins per 1000 evaluations, measured over the 58469 evaluations of
+    # the 6 h run of 2026-09-12: elite 11.7, jitter (param) 6.7, symmetry 5.7, add_edit 4.7, then
+    # edit- 2.9, seed 1.5 and fresh 0.7. `fresh` and `seed` together spent 9% of the run's
+    # evaluations on 6 of its 466 run-best improvements. They keep a floor rather than going to
+    # zero: they are the only operators that start a lineage from a hand-written program.
+    TUNED_OPS = [("jitter", 0.20), ("add_edit", 0.09), ("remove_edit", 0.04), ("seed", 0.03), ("symmetry", 0.06),
+                 ("elite", 0.56), ("fresh", 0.02)]
 
-    def __init__(self, rng: random.Random, face_weight: float = FACE_WEIGHT):
+    def __init__(self, rng: random.Random, face_weight: float = FACE_WEIGHT, op_mix: str = OP_MIX):
         self.rng = rng
         self.face_weight = face_weight
+        self.op_mix = op_mix
+        self.ops = self.TUNED_OPS if op_mix == "tuned" else self.BASE_OPS
 
     def op_weights(self, has_elites: bool, face_ok: bool) -> list[tuple[str, float]]:
-        ops = [(k, 0.0 if k == "elite" and not has_elites else w) for k, w in self.BASE_OPS]
+        ops = [(k, 0.0 if k == "elite" and not has_elites else w) for k, w in self.ops]
         fw = self.face_weight if face_ok else 0.0
         if fw <= 0:
             return ops
@@ -464,6 +479,10 @@ class RandomMutator(Mutator):
                 op, elite_tag = "elite", "elite-fb"
             else:
                 op = r.choices(*zip(*rest))[0] if rest else "fresh"
+        if op == "remove_edit" and not g.get("edits") and self.op_mix == "tuned":
+            # nothing to remove. The legacy chain fell through to the `else` branch and silently
+            # became `fresh`, the worst-scoring operator; jitter the genome instead.
+            op = "jitter"
         if op == "jitter":
             tag = self._jitter(g)
         elif op == "add_edit":
@@ -611,9 +630,10 @@ class LLMMutator(Mutator):
                        proposer=parent.proposer)
 
 
-def make_mutator(kind: str, rng: random.Random, face_weight: float = FACE_WEIGHT, **kw) -> Mutator:
+def make_mutator(kind: str, rng: random.Random, face_weight: float = FACE_WEIGHT, op_mix: str = OP_MIX,
+                 **kw) -> Mutator:
     if kind == "random":
-        return RandomMutator(rng, face_weight)
+        return RandomMutator(rng, face_weight, op_mix)
     if kind == "llm":
         return LLMMutator(rng, **kw)
     raise ValueError(f"unknown mutator {kind!r}")
@@ -730,7 +750,7 @@ class Worker:
         if not resumed and self.lib and args.seed_elites > 0:
             for n in self.ns:
                 self._seed_archive(n, args.seed_elites)
-        self.mutator = make_mutator(args.mutator, self.rng, face_weight=args.face_weight)
+        self.mutator = make_mutator(args.mutator, self.rng, face_weight=args.face_weight, op_mix=args.op_mix)
         self.log({"event": "worker_start", "ns": self.ns, "resumed": resumed, "pid": os.getpid(),
                   "deadline": self.deadline, "mutator": args.mutator, "minima_dir": args.minima_dir})
 
@@ -901,7 +921,8 @@ class Worker:
         # every island first evaluates the hand-written seed programs (spread over islands),
         # later a fresh seed program is injected now and then to keep diversity; seeds of
         # blocked lineages are skipped
-        if open_seeds and (st.seeded < len(seeds) or len(isl) == 0 or self.rng.random() < 0.04):
+        inject = SEED_INJECT.get(self.args.op_mix, SEED_INJECT["legacy"])
+        if open_seeds and (st.seeded < len(seeds) or len(isl) == 0 or self.rng.random() < inject):
             while child is None:
                 cand = seeds[st.seeded % len(seeds)]
                 st.seeded += 1
@@ -931,7 +952,7 @@ class Worker:
                 child = self.mutator.mutate(parent, ctx)
             except MutationError as exc:
                 self.log({"event": "mutation_error", "n": n, "error": str(exc)[:300]})
-                child = RandomMutator(self.rng, self.args.face_weight).mutate(parent, ctx)
+                child = RandomMutator(self.rng, self.args.face_weight, self.args.op_mix).mutate(parent, ctx)
         if child.proposer == proposer_id(child.source):
             self.roots.setdefault(child.proposer, (child.genome, child.source))
         seed = int(self.nprng.integers(2 ** 31))
@@ -1400,6 +1421,10 @@ def worker_parser() -> argparse.ArgumentParser:
                          "that would raise n's best, their archive cell or their proposer's pending minimum")
     ap.add_argument("--seed-elites", type=int, default=SEED_ELITES,
                     help="start each n's archive from its best k distinct library minima (fresh starts; 0: empty)")
+    ap.add_argument("--op-mix", choices=["legacy", "tuned"], default=OP_MIX,
+                    help="mutation operator weights: legacy, or tuned against the run-best win rate measured "
+                         "per operator over the 6 h run of 2026-09-12 (more elite, less fresh/seed, and "
+                         "remove_edit on an edit-free genome jitters instead of silently re-seeding)")
     ap.add_argument("--m3-growth", choices=["on", "off"], default="on" if Bd.M3_GROWTH else "off",
                     help="on: growth paths of 3 fences are laid down and scored in the right vertex order, so a "
                          "single growth step can add a near-unit cell; off: the previous behaviour, in which every "

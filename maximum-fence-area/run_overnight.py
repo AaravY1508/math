@@ -166,6 +166,8 @@ class Supervisor:
             cmd += ["--verify-policy", a.verify_policy]
         if a.m3_growth is not None:
             cmd += ["--m3-growth", a.m3_growth]
+        if a.op_mix is not None:
+            cmd += ["--op-mix", a.op_mix]
         if resume:
             cmd.append("--resume")
         # single-threaded BLAS in the worker and (inherited) in its CPU polish pool: the pool
@@ -459,6 +461,8 @@ def main(argv=None):
                     help="start each n's archive from its k best library minima (default: fence.evolve's; 0 = off)")
     ap.add_argument("--verify-policy", choices=["top", "worthy"], default=None,
                     help="which polished candidates go to the referee (default: fence.evolve's)")
+    ap.add_argument("--op-mix", choices=["legacy", "tuned"], default=None,
+                    help="mutation operator weights (default: fence.evolve's; legacy = the previous mix)")
     ap.add_argument("--m3-growth", choices=["on", "off"], default=None,
                     help="on: a growth step can add a 3-fence cell (default: fence.builder's; off = the previous "
                          "behaviour, in which every path of 3 or more fences crossed itself and was discarded)")
