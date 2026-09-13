@@ -407,3 +407,48 @@ Pre-registered pass criteria, all three must hold:
 At 30 minutes criterion 3 is a non-inferiority check: an arm sees ~250 evaluations per n and the
 whole measured effect is worth about +1.4 run-best wins per 1000 evaluations, which is inside
 the noise at that length. The case for the change is the 58469-evaluation table above.
+
+| n | snapshot record | legacy | tuned |
+|---|---|---|---|
+| 13 | 4.10184 | 4.10119 | 4.10056 |
+| 20 | 7.00000 | **7.00000** | 6.88292 |
+| 23 | 8.48292 | 8.48248 | **8.49695** |
+| 32 | 12.01256 | **12.01264** | **12.02565** |
+| 34 | 12.99952 | **13.11026** | **13.00000** |
+| 39 | 15.01127 | **15.01588** | **15.01184** |
+| 44 | 17.44699 | **17.44713** | 17.44680 |
+| 50 | 20.00000 | 20.00000 | 20.00000 |
+| sum | | 97.16957 | 96.96471 (-0.20486) |
+
+- (1) passed: no deaths, hangs, restarts or GPU errors; 2520 vs 2515 evals/GPU-h (1.002x).
+- (2) passed: low-yield operators 16.1% -> **4.6%** of the arm and `fresh` 5.9% -> **0.8%**, so the
+  weights land where they were meant to and the `remove_edit` fall-through is gone. `elite` took
+  54.3% of the tuned arm's evaluations against 30.3%.
+- (3) **failed on both halves**: -0.20486 summed over the 8 n (limit -0.10), and 5 n at or above
+  the snapshot record against 6.
+- The whole deficit is two n, and tracing them shows it is not the mechanism the change is about:
+  - n=20: the legacy arm's 7.00000 came from `random:seed:grid`, an operator this change cuts --
+    but it only re-derives the grid answer the library already holds as n=20's record, so it adds
+    nothing a long run would keep.
+  - n=34: the legacy arm's 13.11026 (genuinely above the grid, and a new library record) came from
+    `face:relocate-split`, whose share this change does **not** touch (15.1% legacy vs 14.6%
+    tuned). That is luck, not mechanism.
+- The outcome metric shows no benefit either: run-best wins per 1000 evaluations were **19.6
+  (legacy) vs 20.0 (tuned)**. The +1.4/1000 predicted from the 6 h run's per-operator rates is
+  inside the noise at this length and did not appear. Recomputing on what each arm's library
+  would actually keep, max(run best, snapshot record), legacy is still ahead (+0.0875), again
+  entirely because of the one n=34 find.
+- **Change 5 not validated.** `--op-mix` stays at `legacy` by default; the flag, the tuned weights
+  and the tests stay in the tree for a longer experiment. Note this leaves the `remove_edit`
+  fall-through in place for the 6 h run: it is a real bug, worth about 1.2% of evaluations going
+  to the worst-scoring operator, but it is entangled with the reweighting under one flag and
+  separating it needs its own A/B. Not rescued by a replication: a replication is for a result
+  that looks like noise around a real effect, and here the effect itself did not show.
+
+## Summary (2026-09-13)
+
+| change | commit | outcome | evidence |
+|---|---|---|---|
+| 4. 3-fence growth paths | 04a3bb9 | **validated, `--m3-growth on`** | offline 0/1200 -> 1196/1200 cells built, mean area added 1.170; A/B mean fill 0.8677 -> 0.9108 at equal throughput, area within -0.0005 |
+| 5. tuned operator mix | b2e213e | **not validated**, stays `legacy` | weights land as intended (low-yield ops 16.1% -> 4.6%) but area -0.205 and wins/1000 19.6 vs 20.0 |
+| no change | - | Adam budget left alone | optimizer saturated at 24/24 n; 600 steps saves 4%, batch 1024 loses more than it gains |
