@@ -1400,11 +1400,17 @@ def worker_parser() -> argparse.ArgumentParser:
                          "that would raise n's best, their archive cell or their proposer's pending minimum")
     ap.add_argument("--seed-elites", type=int, default=SEED_ELITES,
                     help="start each n's archive from its best k distinct library minima (fresh starts; 0: empty)")
+    ap.add_argument("--m3-growth", choices=["on", "off"], default="on" if Bd.M3_GROWTH else "off",
+                    help="on: growth paths of 3 fences are laid down and scored in the right vertex order, so a "
+                         "single growth step can add a near-unit cell; off: the previous behaviour, in which every "
+                         "such path crossed itself and no 3-fence cell was ever built")
     return ap
 
 
 def worker_main(argv=None):
-    Worker(worker_parser().parse_args(argv)).run()
+    args = worker_parser().parse_args(argv)
+    Bd.M3_GROWTH = args.m3_growth == "on"
+    Worker(args).run()
 
 
 if __name__ == "__main__":

@@ -293,6 +293,12 @@ def pinwheel_in_ring(k: int, K: int, s: float = 0.35, rot: float = 0.0) -> Sketc
 # growth
 # ---------------------------------------------------------------------------
 
+# Growth paths of m >= 3 fences were laid down and scored in the wrong vertex order (see
+# grow_once and sample_growth below), so no growth step ever added a 3-fence cell. M3_GROWTH
+# turns the fix on; False reproduces the previous behaviour exactly, and every m <= 2 path is
+# identical either way (reversing a list of at most one interior point is a no-op).
+M3_GROWTH = False
+
 DEFAULT_GROW = {
     "target_area": 0.95,     # desired area of each new cell
     "m_weights": [0.3, 0.45, 0.25],   # probability of paths with 1, 2, 3 fences
@@ -397,7 +403,9 @@ def sample_growth(sk: Sketch, rng, params: dict, face=None, m_max=3):
             inner = arc_points(Qp, Pp, m, ell)
             if inner is None:
                 continue
-        cell = np.array(chain + inner[::-1])
+        # arc_points returns the interior points ordered Q -> P, so the closed cell is
+        # P -> (boundary chain) -> Q -> inner, not the reverse
+        cell = np.array(chain + (inner if M3_GROWTH else inner[::-1]))
         area = G.polygon_signed_area(cell)
         if area <= 0.05:
             continue
@@ -467,10 +475,14 @@ def grow_once(sk: Sketch, rng, params=None, m_max=3, sym=1, face=None) -> bool:
         trial = sk.copy()
         try:
             copies = [0.0] + [2 * math.pi * j / sym for j in range(1, sym)]
+            # add_path_points lays the fences down as P -> inner... -> Q, so the interior points
+            # must run P -> Q; arc_points ordered them Q -> P. Without the reversal a path of
+            # three or more fences crosses itself and topology() rejects every such growth step.
+            seq = inner[::-1] if M3_GROWTH else inner
             for th in copies:
                 R = np.array([[math.cos(th), -math.sin(th)], [math.sin(th), math.cos(th)]])
                 rot = lambda q: sk.center + R @ (np.asarray(q) - sk.center)  # noqa: E731
-                trial.add_path_points(rot(Pp), rot(Qp), [rot(a) for a in inner])
+                trial.add_path_points(rot(Pp), rot(Qp), [rot(a) for a in seq])
             trial.topology()
         except (BuildError, G.InvalidTopology):
             continue
