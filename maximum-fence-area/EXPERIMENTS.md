@@ -334,3 +334,76 @@ Pre-registered pass criteria, all three must hold:
 
 At 30 minutes criterion 3 is a non-inferiority check; the case for the change is the offline
 result above.
+
+| n | snapshot record | control (off) | m3 (on) |
+|---|---|---|---|
+| 13 | 4.10184 | 4.10058 | 4.10029 |
+| 20 | 7.00000 | 6.99900 | **7.00000** |
+| 23 | 8.48292 | 8.48257 | **8.48512** |
+| 32 | 12.01256 | **12.01633** | 12.01245 |
+| 34 | 12.99952 | **12.99972** | **13.00000** |
+| 39 | 15.01127 | **15.01222** | **15.01137** |
+| 44 | 17.44699 | **17.44745** | **17.44810** |
+| 50 | 20.00000 | 20.00000 | 20.00000 |
+| sum | | 97.05786 | 97.05734 (-0.00052) |
+
+- (1) passed: no worker deaths, hangs, restarts or GPU errors in either arm; 2525 vs 2423
+  evals/GPU-h (1.04x).
+- (2) passed: mean fill (verified area / faces) **0.9108 vs 0.8677, +0.0431**, over 1006 and 935
+  verified evaluations. Mean faces per verified result fell 12.27 -> 11.62 at the same n: fewer
+  faces, fuller ones, which is what a 3-fence cell trades.
+- (3) passed: -0.00052 summed over the 8 n, and 6 n at or above the snapshot record against 5.
+- Behaviour worth recording: three unit fences on a unit-long piece of boundary are a unit
+  square, so the fixed growth walks into grid answers more readily. The treatment arm marked
+  13 lineages grid-trivial against the control's 5, and landed exactly on the grid answer at
+  n = 20 (7.00000) and n = 34 (13.00000, above the snapshot's 12.99952 but still the lattice
+  maximum). The existing machinery handles that -- a lineage that stabilizes on the grid answer
+  is blocked from mutation at n while n's best is grid-trivial -- but it is the cost side of
+  this change, and the face-short n are where it will show.
+- **Change 4 validated; setting: `--m3-growth on`.**
+
+### 5. Operator mix tuned against measured win rates (`--op-mix`)
+
+Run-best wins per 1000 evaluations over the 58469 evaluations of the 6 h run of 2026-09-12:
+
+| operator | evals | wins | wins / 1000 |
+|---|---|---|---|
+| elite-fb | 462 | 7 | 15.2 |
+| face:relocate-split | 7546 | 107 | 14.2 |
+| elite | 19984 | 233 | 11.7 |
+| param (jitter) | 8577 | 57 | 6.7 |
+| sym | 2789 | 16 | 5.7 |
+| edit+ | 4079 | 19 | 4.7 |
+| edit- | 1036 | 3 | 2.9 |
+| face:dissolve-* | 5054 | 12 | 2.4 |
+| seed-program | 2270 | 5 | 2.2 |
+| seed | 2700 | 4 | 1.5 |
+| fresh | 2728 | 2 | 0.7 |
+| face:relocate-outer | 1244 | 1 | 0.8 |
+
+`fresh`, `seed` and the seed-program injection spent 13% of the run's evaluations on 8 of its
+466 run-best improvements. `--op-mix tuned` moves that share to the operators that earn it
+(elite .36 -> .56, jitter .25 -> .20, add_edit .12 -> .09, symmetry .08 -> .06, remove_edit
+.05 -> .04, seed .08 -> .03, fresh .06 -> .02, seed-program injection 0.04 -> 0.015; none goes
+to zero) and fixes the `remove_edit` fall-through: `elif op == "remove_edit" and g.get("edits")`
+misses on an edit-free genome, drops to the chain's `else` branch and silently becomes `fresh`.
+Face-operator children always carry `"edits": []`, so they were its main source; an estimated
+600-750 of the run's evaluations went that way. The face operator's own internal split is left
+alone -- `dissolve` is the only move that can add a face, which 12 n still need.
+
+**Integrated A/B**, 2026-09-13 15:4x, commit b2e213e, worktree `erich-friedman-exp/opmix`, from
+snapshot `minima-snapshots/20260913`. Control `--op-mix legacy` on GPUs 0-1 vs treatment
+`--op-mix tuned` on GPUs 2-3, both arms `--m3-growth on` (change 4 at its validated setting);
+n = 13, 20, 23, 32, 34, 39, 44, 50; `--budget 30m`, `--seed 11`.
+
+Pre-registered pass criteria, all three must hold:
+1. no worker deaths or hangs, and throughput within 15%;
+2. **mechanism**: evaluations spent on operators measured below 3 wins/1000 (`fresh`, `seed`,
+   `seed-program`, `edit-`) fall from about 15% of the arm (15.6% in the change-4 control) to
+   **<= 7%**, with `fresh` **<= 2.5%** -- which also shows the `remove_edit` fall-through is gone;
+3. summed best area over the 8 n >= control - 0.10, and at least as many n at or above the
+   snapshot record.
+
+At 30 minutes criterion 3 is a non-inferiority check: an arm sees ~250 evaluations per n and the
+whole measured effect is worth about +1.4 run-best wins per 1000 evaluations, which is inside
+the noise at that length. The case for the change is the 58469-evaluation table above.
