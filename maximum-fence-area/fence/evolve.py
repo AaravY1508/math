@@ -848,11 +848,14 @@ class Worker:
 
     def _faces_ok(self, n: int):
         """Predicate on an Elite: may it seed or parent a child at n? (Always, unless n is face-short
-        under --target-faces, where only layouts with at least the target face count may.)"""
+        under --target-faces, where only layouts with at least the target face count may -- and not a
+        grid-trivial area either: a grid plus a near-zero sliver face has the target face count and
+        the grid's integer area, and is the grid answer in all but name.) Such a layout is never the
+        grid-trivial answer, which is what lets make_job exempt it from the lineage block."""
         if n not in self.face_short:
             return None
         t = target_faces(self.state[n].baseline)
-        return lambda e: int(e.features.get("faces", 0)) >= t
+        return lambda e: int(e.features.get("faces", 0)) >= t and not is_grid_trivial(e.area, n)
 
     def _seed_archive(self, n: int, k: int):
         """Start n's islands from its k best distinct library minima (the all-time record first),
@@ -866,7 +869,8 @@ class Worker:
         docs = self.lib.best(n, 4 * k)
         if n in self.face_short:
             t = target_faces(st.baseline)
-            docs = [d for d in self.lib.best(n, 10 ** 6) if d["config"]["verification"]["n_faces"] >= t][: 4 * k]
+            docs = [d for d in self.lib.best(n, 10 ** 6) if d["config"]["verification"]["n_faces"] >= t
+                    and not is_grid_trivial(float(d["area"]), n)][: 4 * k]
         for doc in docs:
             if len(placed) >= k:
                 break
@@ -971,11 +975,17 @@ class Worker:
                     child = cand
         if child is None:
             ok = self._faces_ok(n)
-            parent_e = isl.sample(self.rng, exclude=blocked, keep=ok)
+            # The block stops a lineage that stabilized on the grid-trivial answer from re-deriving it.
+            # It is per lineage, so it also bars that lineage's other minima -- at a face-short n, the
+            # very target-F layouts --target-faces breeds from (n=38 got no evaluation at all in 5 h
+            # because of it). Those layouts are never the grid answer (see _faces_ok), so under
+            # --target-faces they are exempt; every other parent is still blocked as before.
+            excl = frozenset() if ok is not None else blocked
+            parent_e = isl.sample(self.rng, exclude=excl, keep=ok)
             for other in st.islands:           # this island may hold only blocked lineages
                 if parent_e is not None:
                     break
-                parent_e = other.sample(self.rng, exclude=blocked, keep=ok)
+                parent_e = other.sample(self.rng, exclude=excl, keep=ok)
             if parent_e is None and not open_seeds:
                 st.time_spent += 30.0          # nothing left to evolve at n: let the scheduler move on
                 self.log({"event": "n_exhausted", "n": n, "blocked": sorted(blocked)})
@@ -983,8 +993,8 @@ class Worker:
             parent = parent_e.program if parent_e else self.rng.choice(open_seeds)
             # the face-aware operator may also edit elites of lineages blocked at n: it changes their
             # layout where it loses area, so it cannot re-derive the grid-trivial answer
-            sketches = self._elite_sketches(n, with_blocked=self.args.face_weight > 0)
-            ctx = {"n": n, "elite_sketches": [e for e in sketches if not e["blocked"]],
+            sketches = self._elite_sketches(n, with_blocked=self.args.face_weight > 0 or ok is not None)
+            ctx = {"n": n, "elite_sketches": [e for e in sketches if ok is not None or not e["blocked"]],
                    "face_sources": [e for e in sketches if e["n"] == n], "history": st.history,
                    "seeds": [p.genome for p in open_seeds], "target_faces": target_faces(st.baseline),
                    "baseline": st.baseline["display"] if st.baseline else None,

@@ -112,3 +112,44 @@ def test_flags():
     base = ["--gpu", "0", "--ns", "20", "--run-dir", "/tmp/x", "--deadline", "0"]
     assert E.worker_parser().parse_args(base).target_faces == "off"
     assert E.worker_parser().parse_args(base + ["--target-faces", "on"]).target_faces == "on"
+
+
+# -- the grid-trivial lineage block (follow-up: n=38 got no evaluation in 5 h under --target-faces) --
+
+def block_everything_at_20(root):
+    """Mark every lineage that could source a job at n=20 as grid-trivial there: the record's (pA),
+    the target-F minima's (pD, pE, pF) and every seed program's."""
+    lib = M.MinimaLibrary(root)
+    cfg = verified_record(20)
+    for p in ["pA", "pB", "pC", "pD", "pE", "pF"] + [E.Program.from_genome(g).proposer for g in E.seed_genomes(20)]:
+        lib.mark_trivial(p, 20, cfg, {"run": "test"})
+
+
+def exhausted(w, tries=6):
+    for _ in range(tries):
+        w.make_job(20)
+    return '"n_exhausted"' in w.log_path.read_text()
+
+
+def test_off_an_n_whose_every_lineage_is_blocked_is_exhausted(face_short_20):
+    block_everything_at_20(face_short_20 / "minima")
+    w = make_worker(face_short_20, "20", extra=["--seed-elites", "3"])
+    assert exhausted(w)                                             # the previous behaviour (n=50 today)
+
+
+def test_on_target_face_elites_are_bred_although_their_lineage_is_blocked(face_short_20):
+    block_everything_at_20(face_short_20 / "minima")
+    w = make_worker(face_short_20, "20", extra=["--seed-elites", "3", "--target-faces", "on"])
+    assert w._blocked(20)                                           # the block is still in force ...
+    jobs = [w.make_job(20) for _ in range(6)]
+    assert not exhausted(w, tries=0)                                # ... but n=20 is not exhausted
+    assert any(j is not None for j in jobs)
+
+
+def test_a_grid_plus_sliver_layout_is_not_a_target_face_parent(face_short_20):
+    w = make_worker(face_short_20, "20", extra=["--seed-elites", "3", "--target-faces", "on"])
+    ok = w._faces_ok(20)
+    e = next(e for isl in w.state[20].islands for e in isl.cells.values())
+    sliver = copy.copy(e)
+    sliver.features, sliver.area = {**e.features, "faces": 8}, 7.0   # 8 faces, the grid's area
+    assert ok(e) and not ok(sliver)
