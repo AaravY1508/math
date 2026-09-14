@@ -452,3 +452,33 @@ the noise at that length. The case for the change is the 58469-evaluation table 
 | 4. 3-fence growth paths | 04a3bb9 | **validated, `--m3-growth on`** | offline 0/1200 -> 1196/1200 cells built, mean area added 1.170; A/B mean fill 0.8677 -> 0.9108 at equal throughput, area within -0.0005 |
 | 5. tuned operator mix | b2e213e | **not validated**, stays `legacy` | weights land as intended (low-yield ops 16.1% -> 4.6%) but area -0.205 and wins/1000 19.6 vs 20.0 |
 | no change | - | Adam budget left alone | optimizer saturated at 24/24 n; 600 steps saves 4%, batch 1024 loses more than it gains |
+
+## 6 h run with 3-fence growth (2026-09-13 16:07-22:03, commit 925b888)
+
+`run_overnight.py --budget 6h --gpus 4 --archive-dir ~/fence-results --n-range
+13-16,18-23,25-30,32-39,41-48,50` (33 n, grid-record n left out), run dir `runs/20260913-160737`,
+table in `runs/combined-20260913.txt`. `--m3-growth on`; `--op-mix legacy` (change 5 did not pass).
+
+- No worker deaths, hangs, restarts, GPU errors, job timeouts or pool recreations. 59008 evals,
+  2497 evals/GPU-h (2026-09-12: 58469, 2474). 4009 minima indexed.
+- **All-time library record improved at 19 of 33 n**; the summed record over the 33 n went from
+  397.477 to 398.384 (+0.907, of which +0.144 came from the day's two A/B arms). All 19
+  re-verified at 50 digits by `fence/referee.py`.
+- **Total gap to the records over the 33 n: 5.627 -> 4.720 (-0.907)**, the largest one-day fall so
+  far. Still no n beats its record; n=16 keeps its tie (5.53706377675388772275 vs 5.53706+).
+- Largest gains: n=42 +0.247, n=34 +0.178, n=35 +0.128, n=26 +0.072, n=37 +0.051, n=46 +0.040.
+- Closest remaining gaps: n=16 0 (tie), 21 0.0022, 19 0.0041, 18 0.0073, 14 0.0123, 48 0.0158,
+  26 0.0197, 23 0.0377, 47 0.0383, 28 0.0417, 15 0.0423, 22 0.0501. n=18 and n=19 moved into that
+  group this run (from 0.0361 and 0.0223).
+- **Change 4 held up at scale.** Mean fill of a verified result (area / faces) over the whole run:
+  **0.9217** against **0.8911** for the 2026-09-12 run on the same 33 n, with mean faces 12.13 vs
+  12.32 -- the same trade the A/B measured (0.9108 vs 0.8677 on its 8 n), at 1.01x the throughput.
+- **n=34 reached its target face count**: 13 faces -> 14 (`F / target` 14 / 14), at 13.17793 from
+  12.99952, i.e. it left the grid answer it had been sitting on. That leaves 11 of the 33 n a face
+  short of `floor(record) + 1`: 20, 22, 27, 29, 33, 36, 38, 42, 43, 45, 47.
+- Eight n still sit exactly on an integer (20, 22, 27, 29, 36, 38, 43, 45, plus 41 and 50 at the
+  lattice maximum with a sliver face). Those need a structurally different layout, and neither
+  change this day addressed them.
+- Operators: elite 117 run-best wins in 17977 evals, face relocate-split 54 in 7721, param 48 in
+  9034, edit+ 21, sym 16, seed 8, face dissolve-split 7. `fresh` 3 in 3054 and `seed-program` 4 in
+  2282 again earned little, which is what change 5 tried and failed to act on.
