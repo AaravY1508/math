@@ -482,3 +482,41 @@ table in `runs/combined-20260913.txt`. `--m3-growth on`; `--op-mix legacy` (chan
 - Operators: elite 117 run-best wins in 17977 evals, face relocate-split 54 in 7721, param 48 in
   9034, edit+ 21, sym 16, seed 8, face dissolve-split 7. `fresh` 3 in 3054 and `seed-program` 4 in
   2282 again earned little, which is what change 5 tried and failed to act on.
+
+## Day 3 (2026-09-14)
+
+### Note: the clock was never wrong
+
+On day 2 I reported that the session's early `date` reads (~06:30) were "stale" against a real
+time of ~15:10. That was wrong. File mtimes settle it: the diagnostics and benchmarks were
+written 06:22-06:45, and the first code commit (04a3bb9) is stamped 15:08:29. `date`, file
+mtimes and git all agree at every point; ynez has been up since 2026-09-08 with NTP
+synchronized. What happened is that the session blocked on two interactive questions right after
+06:45 and was answered about 8.4 hours later. The cost was real but it was not a clock fault:
+the GPUs sat idle for those 8.4 hours (4 GPUs on ynez; serrano's 5 were idle all day anyway).
+
+### 6. `remove_edit` fall-through fix on its own flag (`--remove-edit-fix`)
+
+`RandomMutator.mutate` walks an if/elif chain after choosing an operator by weight; its
+`remove_edit` arm is `elif op == "remove_edit" and g.get("edits")`, so a draw on an edit-free
+genome falls through to the `else` branch and silently becomes `fresh`. Change 5 fixed this only
+under `--op-mix tuned`, and that reweighting failed its A/B. This change moves the fix onto its
+own flag, independent of `--op-mix`: a bug, not a weight.
+
+**Integrated A/B**, 2026-09-14 00:4x, commit 8e4f62b, worktree `erich-friedman-exp/rmfix`, run
+on **serrano** (5x RTX 3090, 48 cores; both arms on the same host, disjoint GPUs), from snapshot
+`minima-snapshots/20260914` (10192 files). Control `--remove-edit-fix off` on serrano GPUs 0-1 vs
+treatment `--remove-edit-fix on` on GPUs 2-3; both `--op-mix legacy --m3-growth on`; n = 13, 20,
+23, 32, 34, 39, 44, 50; `--budget 30m`, `--seed 12`.
+
+Pre-registered pass criteria, all three must hold:
+1. **no eval-count regression** (the bar asked for): no worker deaths or hangs, and treatment
+   evals/GPU-h >= 0.95 x control;
+2. **mechanism**: the treatment arm's `fresh` share is at least 1.0 percentage point below the
+   control's (expected ~5.9% -> ~3.7%: `fresh`'s own weight, 0.06 scaled by the face operator's
+   share, is 3.65%);
+3. summed best area over the 8 n >= control - 0.10, and at least as many n at or above the
+   snapshot record.
+
+At 30 minutes criterion 3 is a non-inferiority check; this change moves about 1-2% of
+evaluations from the worst operator to jitter, and its area effect is expected to be small.
