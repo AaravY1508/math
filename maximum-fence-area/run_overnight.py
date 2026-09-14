@@ -170,6 +170,8 @@ class Supervisor:
             cmd += ["--op-mix", a.op_mix]
         if a.remove_edit_fix is not None:
             cmd += ["--remove-edit-fix", a.remove_edit_fix]
+        if a.target_faces is not None:
+            cmd += ["--target-faces", a.target_faces]
         if resume:
             cmd.append("--resume")
         # single-threaded BLAS in the worker and (inherited) in its CPU polish pool: the pool
@@ -463,6 +465,9 @@ def main(argv=None):
                     help="start each n's archive from its k best library minima (default: fence.evolve's; 0 = off)")
     ap.add_argument("--verify-policy", choices=["top", "worthy"], default=None,
                     help="which polished candidates go to the referee (default: fence.evolve's)")
+    ap.add_argument("--target-faces", choices=["on", "off"], default=None,
+                    help="on: face-short n seed and breed only from layouts with the target face count "
+                         "(default: fence.evolve's)")
     ap.add_argument("--remove-edit-fix", choices=["on", "off"], default=None,
                     help="on: a remove_edit draw with no edit to remove jitters the genome instead of "
                          "silently becoming `fresh` (default: fence.evolve's)")

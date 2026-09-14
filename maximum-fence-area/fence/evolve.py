@@ -318,9 +318,9 @@ class Archive:
     def best(self) -> Elite | None:
         return max(self.cells.values(), key=lambda e: e.fitness) if self.cells else None
 
-    def sample(self, rng: random.Random, exclude=frozenset()) -> Elite | None:
-        """exclude: proposers whose elites must not be picked."""
-        el = [e for e in self.cells.values() if e.program.proposer not in exclude]
+    def sample(self, rng: random.Random, exclude=frozenset(), keep=None) -> Elite | None:
+        """exclude: proposers whose elites must not be picked; keep(elite): only those it accepts."""
+        el = [e for e in self.cells.values() if e.program.proposer not in exclude and (keep is None or keep(e))]
         if not el:
             return None
         if rng.random() < 0.5:
@@ -356,6 +356,8 @@ SEED_ELITES = 6            # library minima each n's archive starts from (--seed
 VERIFY_POLICY = "worthy"   # which polished candidates go to the referee (--verify-policy)
 OP_MIX = "legacy"          # mutation operator weights (--op-mix); "legacy" = the previous mix
 REMOVE_EDIT_FIX = False    # remove_edit on an edit-free genome jitters instead of re-seeding
+TARGET_FACES = False       # face-short n seed and breed only from layouts with the target face count
+                           # (--target-faces); see Worker._face_short
                            # (--remove-edit-fix); independent of OP_MIX
 
 # Probability that a job injects a fresh hand-written seed program once the initial sweep is done.
@@ -753,6 +755,7 @@ class Worker:
                 self.state[n] = NState(n=n, baseline=self.baselines.get(n),
                                        islands=[Archive() for _ in range(args.islands)])
         self._load_library()
+        self.face_short = self._face_short() if getattr(args, "target_faces", "off") == "on" else set()
         if not resumed and self.lib and args.seed_elites > 0:
             for n in self.ns:
                 self._seed_archive(n, args.seed_elites)
@@ -827,6 +830,30 @@ class Worker:
                       "trivial_lineages": {n: len(self.trivial[n]) for n in self.ns},
                       "records": self.records})
 
+    def _face_short(self) -> set[int]:
+        """n whose all-time record has fewer faces than target_faces: floor(record) + 1, the fewest
+        that could beat the published record. Their best layouts are almost all the integer grid
+        answer at F - 1, so seeding by area fills the archive with the grid and nothing else --
+        on the 6 h run of 2026-09-13 every one of the 11 such n was seeded with six grid layouts
+        and not one at the target face count, although each had 20-159 of them in the library.
+        Fixed for the run: if a target-F layout becomes n's best, breeding from target-F is right."""
+        out = set()
+        for n in self.ns:
+            rec = self.lib.record(n) if self.lib else None
+            t = target_faces(self.state[n].baseline)
+            if rec is not None and t is not None and rec["config"]["verification"]["n_faces"] < t:
+                out.add(n)
+        self.log({"event": "face_short", "ns": sorted(out)})
+        return out
+
+    def _faces_ok(self, n: int):
+        """Predicate on an Elite: may it seed or parent a child at n? (Always, unless n is face-short
+        under --target-faces, where only layouts with at least the target face count may.)"""
+        if n not in self.face_short:
+            return None
+        t = target_faces(self.state[n].baseline)
+        return lambda e: int(e.features.get("faces", 0)) >= t
+
     def _seed_archive(self, n: int, k: int):
         """Start n's islands from its k best distinct library minima (the all-time record first),
         spread over the islands, so the run continues where earlier ones stopped. Their programs
@@ -836,7 +863,11 @@ class Worker:
         steered back onto one of them either."""
         st = self.state[n]
         placed = []
-        for doc in self.lib.best(n, 4 * k):
+        docs = self.lib.best(n, 4 * k)
+        if n in self.face_short:
+            t = target_faces(st.baseline)
+            docs = [d for d in self.lib.best(n, 10 ** 6) if d["config"]["verification"]["n_faces"] >= t][: 4 * k]
+        for doc in docs:
             if len(placed) >= k:
                 break
             cfg = doc["config"]
@@ -890,14 +921,17 @@ class Worker:
         out = []
         st = self.state[n]
         blocked = self._blocked(n)
+        ok = self._faces_ok(n)
         for isl in st.islands:
-            for e in sorted(isl.cells.values(), key=lambda e: -e.fitness)[:4]:
+            for e in sorted((c for c in isl.cells.values() if ok is None or ok(c)), key=lambda e: -e.fitness)[:4]:
                 if with_blocked or e.program.proposer not in blocked:
                     out.append({"sketch": _config_to_sketch(e.config), "note": f"n{n}:{e.area:.4f}",
                                 "proposer": e.program.proposer, "n": n, "area": e.area,
                                 "blocked": e.program.proposer in blocked,
                                 "avoid_signature": (e.program.genome or {}).get("avoid_signature")})
-        for m in (n - 1, n + 1, n):
+        # other n's bests, and n's own saved best, can have any face count: a face-short n under
+        # --target-faces takes its sources from its own target-F elites only
+        for m in (() if ok is not None else (n - 1, n + 1, n)):
             p = self.run_dir / "best" / f"n{m:03d}.json"
             now = time.time()
             cached = self._neighbor_cache.get(m)
@@ -936,11 +970,12 @@ class Worker:
                 if cand.proposer not in blocked:
                     child = cand
         if child is None:
-            parent_e = isl.sample(self.rng, exclude=blocked)
+            ok = self._faces_ok(n)
+            parent_e = isl.sample(self.rng, exclude=blocked, keep=ok)
             for other in st.islands:           # this island may hold only blocked lineages
                 if parent_e is not None:
                     break
-                parent_e = other.sample(self.rng, exclude=blocked)
+                parent_e = other.sample(self.rng, exclude=blocked, keep=ok)
             if parent_e is None and not open_seeds:
                 st.time_spent += 30.0          # nothing left to evolve at n: let the scheduler move on
                 self.log({"event": "n_exhausted", "n": n, "blocked": sorted(blocked)})
@@ -1429,6 +1464,9 @@ def worker_parser() -> argparse.ArgumentParser:
                          "that would raise n's best, their archive cell or their proposer's pending minimum")
     ap.add_argument("--seed-elites", type=int, default=SEED_ELITES,
                     help="start each n's archive from its best k distinct library minima (fresh starts; 0: empty)")
+    ap.add_argument("--target-faces", choices=["on", "off"], default="on" if TARGET_FACES else "off",
+                    help="on: an n whose record has fewer faces than floor(record) + 1 seeds its archive and "
+                         "picks parents only from layouts with at least that many faces; off: by area, as before")
     ap.add_argument("--remove-edit-fix", choices=["on", "off"], default="on" if REMOVE_EDIT_FIX else "off",
                     help="on: a remove_edit draw on a genome with no edits jitters it; off: the previous "
                          "behaviour, where that draw fell through the operator chain and became `fresh`")
