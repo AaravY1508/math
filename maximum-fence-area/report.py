@@ -60,8 +60,11 @@ def render_svg(cfg: dict, title: str, size: int = 520) -> str:
         for cyc in topo.get("faces", []):
             pts = " ".join(f"{tx(V[v][0]):.2f},{ty(V[v][1]):.2f}" for v in cyc)
             out.append(f'<polygon points="{pts}" fill="#dbe8fb" stroke="none"/>')
-        areas = cfg.get("verification", {}).get("face_areas", [])
-        if len(areas) == len(topo.get("faces", [])):
+        # recomputed from the faces drawn: the referee lists face_areas in ITS face order, which
+        # differs from the topology's at most layouts, so pairing the two lists mislabels faces
+        areas = [0.5 * abs(sum(V[a][0] * V[b][1] - V[b][0] * V[a][1] for a, b in zip(cyc, cyc[1:] + cyc[:1])))
+                 for cyc in topo.get("faces", [])]
+        if areas:
             for cyc, a in zip(topo["faces"], areas):
                 cx = sum(V[v][0] for v in cyc) / len(cyc)
                 cy = sum(V[v][1] for v in cyc) / len(cyc)
