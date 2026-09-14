@@ -616,3 +616,55 @@ exempts target-F layouts with a non-grid-trivial area from the lineage block (th
 the grid answer, which is all the block exists to prevent). Continues from phase 1's private
 library, `--seed 14`, otherwise as phase 1; same outcome definitions. n=38 is evaluated from its
 first minutes.
+
+**Outcome** (task 5, both phases, scored against the pre-registered definitions):
+
+| n | target F | best target-F: start | phase 1 | phase 1+2 | production (same n) | resolved |
+|---|---|---|---|---|---|---|
+| 20 | 8 | 6.93786 | 6.93389 | **7.03935** | 7.00799 | **yes** (7.0 grid -> 7.03935) |
+| 22 | 9 | 7.56615 | 7.78332 | 7.85192 | 7.44177 | no |
+| 27 | 11 | 9.90640 | 9.99983 | 9.99983 | 9.75862 | no (0.00017 short of 10.0) |
+| 29 | 12 | 10.76012 | 10.78420 | 10.78420 | 10.72700 | no |
+| 33 | 14 | 12.13355 | 12.35759 | 12.35875 | 12.13590 | no |
+| 36 | 15 | 13.86746 | 13.89824 | 13.90539 | 13.76130 | no |
+| 38 | 16 | 14.49626 | - (blocked) | 14.68939 | 14.39067 | no |
+| 42 | 18 | 16.01212 | 16.17295 | 16.17410 | 16.00409 | no |
+| 43 | 18 | 16.68022 | 17.08181 | **17.16777** | 16.82203 | **yes** (17.0 grid -> 17.16777) |
+| 45 | 19 | 17.84848 | 17.89507 | 17.89877 | 17.61185 | no |
+| 47 | 20 | 18.61991 | 18.62900 | 18.65072 | 18.61679 | no |
+
+- **2 of 11 resolved**, both into the library record at their target face count: face-short n
+  11 -> 9. Against the expectation stated before the run: n=20 was among the four named, n=43 was
+  not (it started 0.32 short); n=27, 36, 45 were named and did not resolve; 33 and 42 did not, as
+  expected.
+- The production comparison is confounded: serrano (below) held 8 of these 11 n and searched them
+  for 1.4 h, not 8. The three on ynez are the fair part -- production had the full 8 h there, with
+  3 GPUs over 12 n against task 5's 1 GPU over 11 -- and task 5's best target-F layout was still
+  ahead at all three (n=33 12.359 vs 12.136, n=42 16.174 vs 16.004, n=43 17.168 vs 16.822). Three n
+  is suggestive, not a validation: `--target-faces` stays off by default until it has its own A/B.
+
+## 8 h run (2026-09-14 06:02-14:02, commit 6bbc889, two hosts)
+
+`run_overnight.py --budget 8h` on ynez GPUs 0, 2, 3 (12 n; GPU 1 ran task 5) and serrano GPUs 0-4
+(21 n), disjoint `--n-range`s split by schedule weight (5.00 vs 5.30 per GPU), one shared library.
+`--m3-growth on`, `--op-mix legacy`, `--remove-edit-fix off`. Table: `runs/combined-20260914.txt`.
+
+- **ynez: 62048 evals, 2615 evals/GPU-h, no restarts, hangs or errors**; CPU wait 4.3%.
+- **serrano went down at 07:24:39**, 1 h 22 m in: all five workers and heartbeats stopped in the
+  same second, and the host answered neither ping ("no route to host") nor ssh for the rest of the
+  day. 11054 evals before that. Nothing in the library was damaged: records are written atomically
+  and only ever replaced by a larger area; all 21 of its records and the 744 minima files it wrote
+  parse. Its n were not moved to ynez: without knowing whether serrano had crashed or was only cut
+  off, a second writer on the same n was the larger risk, and ynez had no free GPU.
+- **Records, against the current page** (re-scraped this day; 19 entries rose since 2026-09-10):
+  improved at 17 of 33 n, all re-verified at 50 digits at tol 1e-9 and 1e-12; total gap
+  **5.15948 -> 4.54024 (-0.61924)**. Largest gains n=44 +0.199, n=43 +0.168 (task 5), n=42 +0.086,
+  n=35 +0.070, n=20 +0.039 (task 5), n=26 +0.021. n=16 keeps its tie; nothing beats a record.
+- A run logged two IMPROVEMENT events at n=26 (9.88939406 against 9.88822+). They were against the
+  stale table; the page says 9.89324+. The referee passed the layout, so it is a real library
+  record, 0.00356 short of the published one.
+- **n=50 got no evaluation at all**: every seed program and every seeded elite at n=50 belongs to a
+  lineage marked grid-trivial there (27 of them), so make_job declares n exhausted before the face
+  operator -- which is meant to keep editing blocked grid layouts -- is ever called. n=38 and n=41
+  are close to the same state (no open seed program; 1 and 4 unblocked elites). Not fixed today:
+  it is a change to the default search and needs its own A/B.
