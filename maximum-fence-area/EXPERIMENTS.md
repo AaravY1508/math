@@ -520,3 +520,47 @@ Pre-registered pass criteria, all three must hold:
 
 At 30 minutes criterion 3 is a non-inferiority check; this change moves about 1-2% of
 evaluations from the worst operator to jitter, and its area effect is expected to be small.
+
+### 7. Face-short n: breed from target-face-count layouts (`--target-faces`) -- exploratory
+
+Asked: take the eleven face-short n (20, 22, 27, 29, 33, 36, 38, 42, 43, 45, 47) and try to
+resolve them the way n=34 was resolved, 13 -> 14 faces and 12.99952 -> 13.17793.
+
+What n=34 actually shows, from the library's minima metadata: its target face count was always
+14 (floor(13.27290) + 1; it is derived from the record, not a setting). It had 14-face layouts
+from 2026-09-11 on -- 113 of them -- but all of them filled below the 13-face grid's 13.0 until
+one passed it in the day-2 A/B with 3-fence growth on. The same holds for all eleven now:
+
+| n | record | ours | F / target | target-F layouts in library | best of them | vs ours |
+|---|---|---|---|---|---|---|
+| 20 | 7.14732 | 7.00000 | 7 / 8 | 158 | 6.93786 | -0.062 |
+| 22 | 8.05008 | 8.00000 | 8 / 9 | 38 | 7.56615 | -0.434 |
+| 27 | 10.12802 | 10.00000 | 10 / 11 | 129 | 9.90640 | -0.094 |
+| 29 | 11.08218 | 11.00000 | 11 / 12 | 113 | 10.76012 | -0.240 |
+| 33 | 13.00524 | 12.77986 | 13 / 14 | 26 | 12.13355 | -0.646 |
+| 36 | 14.13555 | 14.00000 | 14 / 15 | 159 | 13.86746 | -0.133 |
+| 38 | 15.07607 | 15.00000 | 15 / 16 | 96 | 14.49626 | -0.504 |
+| 42 | 17.00233 | 16.78036 | 17 / 18 | 20 | 16.01212 | -0.768 |
+| 43 | 17.31048 | 17.00000 | 17 / 18 | 74 | 16.68022 | -0.320 |
+| 45 | 18.07909 | 18.00000 | 18 / 19 | 101 | 17.84848 | -0.152 |
+| 47 | 19.03829 | 19.00000 | 19 / 20 | 112 | 18.61991 | -0.380 |
+
+And the search never works on those layouts: seeding by area fills each face-short archive with
+the grid basin. On the 6 h run of 2026-09-13 all eleven were seeded with six layouts at F - 1 (n=20:
+7.0, 7.0, 7.0, 7.0, 7.0, 6.999; n=38: six at 15.0) and none at the target. `--target-faces on`
+(commit 18afe45) seeds and breeds face-short n from target-F layouts only.
+
+**Run**, 2026-09-14 00:4x, worktree `erich-friedman-exp/tface` at 18afe45, **ynez GPU 1** (the
+only ynez GPU free; another user holds 0, 2, 3), private library from `minima-snapshots/20260914`,
+the eleven n, `--budget 8h`, `--seed 13`, `--target-faces on --m3-growth on --op-mix legacy`.
+It runs alongside the production 8 h run, which works on the same eleven n with normal seeding.
+
+Pre-registered outcome definitions (this is exploratory, not a validation of a default):
+- **resolved**: the run finds a referee-verified layout with at least the target face count whose
+  area exceeds that n's library record at the start of the day (the snapshot). That is the n=34
+  outcome. Reported per n, with the count of the eleven that resolve.
+- Also per n: the best target-F area at the start (table above) and at the end.
+- Compared with the production run's best target-F area on the same n. That comparison is
+  observational -- the two differ in GPU count, host and n count -- and is not an A/B.
+- Expectation, stated before the run: the four closest (20, 27, 36, 45, 0.06-0.15 short of the
+  current best) are the plausible ones; 33 and 42 need 0.65-0.77 and are unlikely to resolve.
