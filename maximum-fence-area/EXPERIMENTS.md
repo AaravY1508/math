@@ -564,3 +564,41 @@ Pre-registered outcome definitions (this is exploratory, not a validation of a d
   observational -- the two differ in GPU count, host and n count -- and is not an A/B.
 - Expectation, stated before the run: the four closest (20, 27, 36, 45, 0.06-0.15 short of the
   current best) are the plausible ones; 33 and 42 need 0.65-0.77 and are unlikely to resolve.
+
+**Result** (A/B ran 00:38-01:03 on serrano; scored at 05:58 -- see the note on the session gap below).
+
+| n | snapshot record | fix off | fix on |
+|---|---|---|---|
+| 13 | 4.10184 | 4.09998 | 4.09888 |
+| 20 | 7.00000 | 7.00000 | 7.00000 |
+| 23 | 8.49695 | 8.49498 | 8.49015 |
+| 32 | 12.02919 | **12.03759** | 12.02847 |
+| 34 | 13.17793 | 13.17530 | **13.17835** |
+| 39 | 15.01645 | 15.01644 | **15.01645** |
+| 44 | 17.45272 | **17.56262** | 17.45129 |
+| 50 | 20.00000 | - (0 evals) | - (0 evals) |
+| sum (7 n) | | 77.38691 | 77.26358 (-0.12333) |
+
+- (1) passed -- **no eval-count regression**: no deaths, hangs, restarts or GPU errors in either arm;
+  1917 vs 1799 evals/GPU-h (**1.066x**).
+- (2) passed: `fresh` share **5.7% -> 2.6%** (-3.1 points; needed >= 1.0). Low-yield operators
+  15.3% -> 12.7%.
+- (3) **failed**: -0.12333 summed (limit -0.10); 3 n at or above the snapshot record in each arm.
+- Almost all of the deficit (-0.111) is n=44, where the control found 17.56262, well above the
+  snapshot record. That layout came from `elite` (move_fence + remove_face), an operator this change
+  does not touch. On the outcome metric the fix is ahead: run-best wins per 1000 evaluations
+  **28.3 (on) vs 25.3 (off)**.
+- **Change 6 not validated by its pre-registered criteria**, and it stays **off** for the 8 h run:
+  change 5 was held to the same criterion, and turning this one on anyway would be restating a
+  criterion after the fact. Unlike change 5, the effect this change is about did show (the `fresh`
+  share fell as predicted, throughput rose, wins per 1000 rose), so the result looks like noise
+  around a real effect -- which is what a replication with fresh criteria is for. Not run today: it
+  would have held back an already-late 8 h run on 8 GPUs.
+- n=50 got **zero evaluations in both arms** (74-75 `n_exhausted` events each); see below.
+
+### Session gap (2026-09-14 01:03-05:58)
+
+The A/B finished at 01:03 and the session carrying this work ended before it was scored; it was
+picked up again at 05:58. serrano's 5 GPUs sat idle for those ~4.9 hours (task 5 kept ynez GPU 1
+busy throughout; ynez GPUs 0, 2, 3 were held by another user until some time in that window). The
+8 h production run therefore started at 06:02 instead of ~01:15.
