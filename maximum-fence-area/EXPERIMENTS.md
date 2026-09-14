@@ -602,3 +602,17 @@ The A/B finished at 01:03 and the session carrying this work ended before it was
 picked up again at 05:58. serrano's 5 GPUs sat idle for those ~4.9 hours (task 5 kept ynez GPU 1
 busy throughout; ynez GPUs 0, 2, 3 were held by another user until some time in that window). The
 8 h production run therefore started at 06:02 instead of ~01:15.
+
+**Phase 1** (00:47-08:47, 8 h, ynez GPU 1, commit 18afe45): 15608 evaluations, no restarts, one
+CUDA out-of-memory at n=47 recovered in place. **n=43 resolved**: an 18-face layout at 17.08181,
+past its 17.00000 grid -- the n=34 outcome. Target-F best improved at 9 of the 10 n it could
+reach (n=43 +0.402, n=33 +0.224, n=22 +0.217, n=42 +0.161, n=27 +0.093 to 9.99983). **n=38 got no
+evaluation at all** (287 `n_exhausted`): all its target-F layouts belong to lineages that once
+stabilized on the 15.0 grid, and the grid-trivial block is per lineage, so it barred them too.
+
+**Phase 2** (from 08:49, ~5 h 10 m, ynez GPU 1, worktree `erich-friedman-exp/tface2` at 4b16eb1 on
+a detached HEAD -- the main tree is not touched under the live production run): the follow-up fix
+exempts target-F layouts with a non-grid-trivial area from the lineage block (they can never be
+the grid answer, which is all the block exists to prevent). Continues from phase 1's private
+library, `--seed 14`, otherwise as phase 1; same outcome definitions. n=38 is evaluated from its
+first minutes.
