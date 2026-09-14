@@ -7,6 +7,11 @@ __pycache__/
 maximum-fence-area/venv/
 maximum-fence-area/.venv/
 maximum-fence-area/.python/
-maximum-fence-area/runs/
+# runs/ holds run data (never committed) except the combined result tables, which are the
+# day's deliverable and are referenced from EXPERIMENTS.md. Ignore the directory's CONTENTS
+# rather than the directory itself, so the negation below can re-include those files: git
+# does not descend into an ignored directory, and a negation cannot re-include from one.
+maximum-fence-area/runs/*
+!maximum-fence-area/runs/combined-*.txt
 maximum-fence-area/minima/
 maximum-fence-area/minima-snapshots/
