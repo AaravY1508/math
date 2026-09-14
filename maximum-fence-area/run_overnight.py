@@ -168,6 +168,8 @@ class Supervisor:
             cmd += ["--m3-growth", a.m3_growth]
         if a.op_mix is not None:
             cmd += ["--op-mix", a.op_mix]
+        if a.remove_edit_fix is not None:
+            cmd += ["--remove-edit-fix", a.remove_edit_fix]
         if resume:
             cmd.append("--resume")
         # single-threaded BLAS in the worker and (inherited) in its CPU polish pool: the pool
@@ -461,6 +463,9 @@ def main(argv=None):
                     help="start each n's archive from its k best library minima (default: fence.evolve's; 0 = off)")
     ap.add_argument("--verify-policy", choices=["top", "worthy"], default=None,
                     help="which polished candidates go to the referee (default: fence.evolve's)")
+    ap.add_argument("--remove-edit-fix", choices=["on", "off"], default=None,
+                    help="on: a remove_edit draw with no edit to remove jitters the genome instead of "
+                         "silently becoming `fresh` (default: fence.evolve's)")
     ap.add_argument("--op-mix", choices=["legacy", "tuned"], default=None,
                     help="mutation operator weights (default: fence.evolve's; legacy = the previous mix)")
     ap.add_argument("--m3-growth", choices=["on", "off"], default=None,

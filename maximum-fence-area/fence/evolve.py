@@ -355,6 +355,8 @@ FACE_WEIGHT = 0.25         # share of the face-aware operator (worker flag --fac
 SEED_ELITES = 6            # library minima each n's archive starts from (--seed-elites)
 VERIFY_POLICY = "worthy"   # which polished candidates go to the referee (--verify-policy)
 OP_MIX = "legacy"          # mutation operator weights (--op-mix); "legacy" = the previous mix
+REMOVE_EDIT_FIX = False    # remove_edit on an edit-free genome jitters instead of re-seeding
+                           # (--remove-edit-fix); independent of OP_MIX
 
 # Probability that a job injects a fresh hand-written seed program once the initial sweep is done.
 # Measured over the 6 h run of 2026-09-12: seed-program evaluations won 2.2 run-bests per 1000,
@@ -386,10 +388,12 @@ class RandomMutator(Mutator):
     TUNED_OPS = [("jitter", 0.20), ("add_edit", 0.09), ("remove_edit", 0.04), ("seed", 0.03), ("symmetry", 0.06),
                  ("elite", 0.56), ("fresh", 0.02)]
 
-    def __init__(self, rng: random.Random, face_weight: float = FACE_WEIGHT, op_mix: str = OP_MIX):
+    def __init__(self, rng: random.Random, face_weight: float = FACE_WEIGHT, op_mix: str = OP_MIX,
+                 remove_edit_fix: bool = REMOVE_EDIT_FIX):
         self.rng = rng
         self.face_weight = face_weight
         self.op_mix = op_mix
+        self.remove_edit_fix = remove_edit_fix
         self.ops = self.TUNED_OPS if op_mix == "tuned" else self.BASE_OPS
 
     def op_weights(self, has_elites: bool, face_ok: bool) -> list[tuple[str, float]]:
@@ -479,9 +483,11 @@ class RandomMutator(Mutator):
                 op, elite_tag = "elite", "elite-fb"
             else:
                 op = r.choices(*zip(*rest))[0] if rest else "fresh"
-        if op == "remove_edit" and not g.get("edits") and self.op_mix == "tuned":
-            # nothing to remove. The legacy chain fell through to the `else` branch and silently
-            # became `fresh`, the worst-scoring operator; jitter the genome instead.
+        if op == "remove_edit" and not g.get("edits") and self.remove_edit_fix:
+            # Nothing to remove. Without this the `elif op == "remove_edit" and g.get("edits")`
+            # below misses, the chain falls through to its `else` branch and the draw silently
+            # becomes `fresh` -- the worst-scoring operator, and not what any weight asked for.
+            # Jitter the genome instead. Independent of --op-mix: this is a bug, not a weight.
             op = "jitter"
         if op == "jitter":
             tag = self._jitter(g)
@@ -631,9 +637,9 @@ class LLMMutator(Mutator):
 
 
 def make_mutator(kind: str, rng: random.Random, face_weight: float = FACE_WEIGHT, op_mix: str = OP_MIX,
-                 **kw) -> Mutator:
+                 remove_edit_fix: bool = REMOVE_EDIT_FIX, **kw) -> Mutator:
     if kind == "random":
-        return RandomMutator(rng, face_weight, op_mix)
+        return RandomMutator(rng, face_weight, op_mix, remove_edit_fix)
     if kind == "llm":
         return LLMMutator(rng, **kw)
     raise ValueError(f"unknown mutator {kind!r}")
@@ -750,7 +756,8 @@ class Worker:
         if not resumed and self.lib and args.seed_elites > 0:
             for n in self.ns:
                 self._seed_archive(n, args.seed_elites)
-        self.mutator = make_mutator(args.mutator, self.rng, face_weight=args.face_weight, op_mix=args.op_mix)
+        self.mutator = make_mutator(args.mutator, self.rng, face_weight=args.face_weight, op_mix=args.op_mix,
+                                    remove_edit_fix=args.remove_edit_fix == "on")
         self.log({"event": "worker_start", "ns": self.ns, "resumed": resumed, "pid": os.getpid(),
                   "deadline": self.deadline, "mutator": args.mutator, "minima_dir": args.minima_dir})
 
@@ -952,7 +959,8 @@ class Worker:
                 child = self.mutator.mutate(parent, ctx)
             except MutationError as exc:
                 self.log({"event": "mutation_error", "n": n, "error": str(exc)[:300]})
-                child = RandomMutator(self.rng, self.args.face_weight, self.args.op_mix).mutate(parent, ctx)
+                child = RandomMutator(self.rng, self.args.face_weight, self.args.op_mix,
+                                      self.args.remove_edit_fix == "on").mutate(parent, ctx)
         if child.proposer == proposer_id(child.source):
             self.roots.setdefault(child.proposer, (child.genome, child.source))
         seed = int(self.nprng.integers(2 ** 31))
@@ -1421,6 +1429,9 @@ def worker_parser() -> argparse.ArgumentParser:
                          "that would raise n's best, their archive cell or their proposer's pending minimum")
     ap.add_argument("--seed-elites", type=int, default=SEED_ELITES,
                     help="start each n's archive from its best k distinct library minima (fresh starts; 0: empty)")
+    ap.add_argument("--remove-edit-fix", choices=["on", "off"], default="on" if REMOVE_EDIT_FIX else "off",
+                    help="on: a remove_edit draw on a genome with no edits jitters it; off: the previous "
+                         "behaviour, where that draw fell through the operator chain and became `fresh`")
     ap.add_argument("--op-mix", choices=["legacy", "tuned"], default=OP_MIX,
                     help="mutation operator weights: legacy, or tuned against the run-best win rate measured "
                          "per operator over the 6 h run of 2026-09-12 (more elite, less fresh/seed, and "

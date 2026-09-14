@@ -1,10 +1,10 @@
-"""Mutation operator weights (fence.evolve.RandomMutator, --op-mix).
+"""Mutation operator WEIGHTS (fence.evolve.RandomMutator, --op-mix).
 
-`legacy` is the mix every run so far used, including its `remove_edit` fall-through: an
-`elif op == "remove_edit" and g.get("edits")` that misses drops to the chain's `else` branch
-and silently becomes `fresh`. `tuned` re-weights the mix against the run-best win rate measured
-per operator over the 58469 evaluations of the 6 h run of 2026-09-12, and jitters instead of
-re-seeding when there is no edit to remove.
+`legacy` is the mix every run so far used. `tuned` re-weights it against the run-best win rate
+measured per operator over the 58469 evaluations of the 6 h run of 2026-09-12; it did not pass
+its A/B (EXPERIMENTS.md change 5) and is not the default.
+
+The `remove_edit` fall-through is a separate concern on its own flag: tests/test_remove_edit_fix.py.
 """
 import random
 
@@ -14,13 +14,6 @@ from fence import evolve as E
 
 LEGACY = [("jitter", 0.25), ("add_edit", 0.12), ("remove_edit", 0.05), ("seed", 0.08), ("symmetry", 0.08),
           ("elite", 0.36), ("fresh", 0.06)]
-
-
-def forced(op: str, mix: str, seed: int = 0) -> E.RandomMutator:
-    """A mutator that always picks `op` (weights are the only thing that chooses one)."""
-    mut = E.RandomMutator(random.Random(seed), face_weight=0.0, op_mix=mix)
-    mut.ops = [(op, 1.0)]
-    return mut
 
 
 def test_legacy_is_the_previous_mix_and_is_the_module_default():
@@ -48,25 +41,6 @@ def test_the_face_op_still_takes_its_share_from_the_regrowing_operators_under_tu
     assert w["face"] == 0.25
     assert w["elite"] == pytest.approx(0.56)                  # elite keeps its full share
     assert w["jitter"] == pytest.approx(0.20 * (0.44 - 0.25) / 0.44)
-
-
-@pytest.mark.parametrize("mix,expect", [("legacy", "random:fresh"), ("tuned", "random:param:")])
-def test_remove_edit_without_an_edit_to_remove(mix, expect):
-    """Legacy silently re-seeds from a hand-written program; tuned jitters the genome."""
-    n = 18
-    parent = E.Program.from_genome({"seed": {"kind": "ring"}, "grow": {"inside_prob": 0.5}})
-    assert not parent.genome.get("edits")
-    mut = forced("remove_edit", mix)
-    origins = [mut.mutate(parent, {"n": n}).origin for _ in range(8)]
-    assert all(o.startswith(expect) for o in origins), origins
-
-
-@pytest.mark.parametrize("mix", ["legacy", "tuned"])
-def test_remove_edit_still_removes_an_edit_when_there_is_one(mix):
-    parent = E.Program.from_genome({"seed": {"kind": "ring"}, "edits": ["split_edge", "move_fence"]})
-    child = forced("remove_edit", mix).mutate(parent, {"n": 18})
-    assert child.origin == "random:edit-"
-    assert len(child.genome["edits"]) == 1
 
 
 def test_seed_program_injection_rate_by_mix():
