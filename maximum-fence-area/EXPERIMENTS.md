@@ -668,3 +668,185 @@ first minutes.
   operator -- which is meant to keep editing blocked grid layouts -- is ever called. n=38 and n=41
   are close to the same state (no open seed program; 1 and 4 unblocked elites). Not fixed today:
   it is a change to the default search and needs its own A/B.
+
+## Day 4 (2026-09-17)
+
+### 8. Two-stage net pipeline (`pipeline.py`) -- new search, not yet A/B'd against the old one
+
+The standing diagnosis is that the local optimizer is saturated (0 gain at 24 of 24 n from 8x
+batch and 4x steps) and that **topology discovery is the bottleneck**. `run_overnight.py`
+attacks it indirectly, by evolving programs that draw layouts. This change adds a second,
+independent entry point that attacks it directly: enumerate the combinatorial structures first,
+reject the ones that provably cannot reach the record, rank what is left, and only then spend
+optimizer time.
+
+New modules, all additive -- `run_overnight.py`, `fence/evolve.py` and the optimizer are
+untouched, so nothing here can change a production run's behaviour:
+
+| module | what it holds |
+|---|---|
+| `fence/rules.py` | the 14 hard rules, one registered check each, plus the rejection `Ledger` |
+| `fence/heuristics.py` | the 9 ranking heuristics, one registered scorer each, with weights |
+| `fence/nets.py` | the counting envelope, 6 net generators, the filter-and-rank stage |
+| `fence/netevolve.py` | a population over one net's geometry, with 12 mutation moves |
+| `pipeline.py` | the driver, `--list`, `--calibrate`, and the per-n report |
+
+Every rule, heuristic, generator and move is a separate switch (`--no-rule`, `--no-heuristic`,
+`--weight`, `--no-move`, `--move-weight`, `--generators`), so the cost of each can be measured
+one at a time, and every rejection is counted against the id of the check that fired. An unknown
+id in any of those flags raises rather than being ignored: a typo would otherwise look exactly
+like the check being free.
+
+#### The rules check out against every verified configuration we hold
+
+Running all 14 rules over the 39 referee-verified records in `minima/records`:
+
+- **13 of 14 rules pass on all 39.** That is a real cross-check of the counting rules against
+  independent data: Euler (V - (n+T) + F = 1) and the incidence identity
+  (sum of face sizes = 2(n+T) - b) hold exactly on every one, with T counted as distinct
+  T-junction *points*.
+- **rule 14 (F >= ceil(A_record)) rejects exactly 9**: n = 22, 27, 29, 33, 36, 38, 42, 45, 47.
+  That is precisely the face-short list, re-derived from scratch by a module that knows nothing
+  about the search. Rule 14 rejecting our own current best at those n *is* the reason they are
+  stuck: they cannot reach the record at their face count, whatever the optimizer does.
+
+A derived bound worth recording, from rule 11 applied to the outer boundary rather than to a
+face: the bounded area is what the outer cycle encloses and each of its b graph-edges is at most
+1 long, so **total area <= b^2 / (4 pi)**, i.e. b >= 2 sqrt(pi A_record). It holds on all 39 and
+it prunes the counting envelope (at n = 22 it removes boundary sizes the face rules allow).
+
+#### Heuristics 1 and 2 disagree with the records, so the defaults follow the records
+
+Both were stated as coming from a square-grid model and as unverified. Measured over the same
+39 configurations (`pipeline.py --calibrate`):
+
+| | square-grid model | measured | verdict |
+|---|---|---|---|
+| boundary size b | 2 sqrt(2n) = 2.83 sqrt(n) | **3.31 sqrt(n)**, spread +-17% | model too small |
+| face count F | n/2 | **0.402 n** | model too large by ~25% |
+
+The boundary figure splits sharply by structure: **2.59 sqrt(n)** for the T-junction-free grid
+layouts and **3.65 sqrt(n)** for the T-rich ones, so a single coefficient is a weak prior either
+way and the heuristic is weighted accordingly.
+
+The face-count result is the sharper one: **F = ceil(total area) on 37 of 39** configurations
+(all 39 under exact rounding). The face count is not an independent target at all -- it is the
+record-based bound of hard rule 14, reached exactly. So the default face target is ceil(A_record),
+not n/2, which would rank the right nets last at every n. `--boundary-model square-grid` and
+`--face-model half-n` restore the model values for comparison.
+
+#### What stage 1 says about the face-short n
+
+At n = 22 the generators that came with the old search produce almost nothing legal: rule 14
+rejects 132 of 141 candidates, and the 2 survivors are pinwheels. That is the supply problem,
+visible before a second of GPU time is spent. A generator that drives the face count up to the
+bound directly (repeated `face_fill` dissolves, each trading a corner joint for a T-junction and
+a returned one-fence cell) fixes the supply: at n = 22, 42 of 184 candidates now reach F >= 9,
+and at n = 27, 56 of 223 reach F >= 11.
+
+#### What each check is actually worth
+
+`pipeline.py --ablate rules --n-range 12,22,30 --max-candidates 300` (stage 1 only, 151 nets
+kept with everything on):
+
+| rule off | nets kept | delta |
+|---|---|---|
+| `record_faces` (14) | 374 | **+223** |
+| `bridgeless` (10) | 157 | **+6** |
+| the other twelve | 151 | +0 |
+
+Counting rejections across a whole run rather than one ablation gives the same answer, and
+says where each rule earns its keep:
+
+| | stage 1 (net generators) | stage 2 (mutation moves) |
+|---|---|---|
+| `record_faces` (14) | 2256 | 80 |
+| `bridgeless` (10) | 248 | 29 |
+| `t_straight` (12) | 0 | 2 |
+| everything else | 0 | 0 |
+
+So as *filters*, only rules 10, 12 and 14 do any work today, and rule 14 does almost all of
+it. The other eleven never fire because `fence.builder` already refuses to return an illegal
+embedding, and because `apply_move` restores the fence count before a mutant is judged. That
+is not an argument for deleting them: they are the specification, they are what makes a new
+generator or move safe to add, and they pass on all 39 verified records, which is what says
+the counting identities are right. It is an argument against expecting them to find anything.
+
+The heuristics were ablated the same way over n = 12, 16, 22, 30, 38, by re-scoring the same
+nets rather than regenerating them (a heuristic rejects nothing):
+
+| heuristic off | top-5 nets kept | best net changed |
+|---|---|---|
+| `boundary` | 11/25 | 5/5 n |
+| `convex_outer` | 14/25 | 3/5 n |
+| `lattice_snap` | 14/25 | 1/5 n |
+| `t_at_boundary` | 15/25 | 2/5 n |
+| `face_quality` | 16/25 | 1/5 n |
+| `seed_family` | 17/25 | 1/5 n |
+| `symmetry` | 18/25 | 0/5 n |
+| `face_count` | 19/25 | 0/5 n |
+| `one_cluster` | 19/25 | 0/5 n |
+
+`one_cluster` scores 1.000 on every net that survives the rules -- rules 6 and 13 already
+require one component -- and `face_count` takes four distinct values with mean 0.98, because
+rule 14 already filtered on it. Both are only live when those rules are switched off.
+
+#### Bugs this work turned up
+
+- `NetEvolver` offspring loop could spin forever when every enabled move declined on a net
+  (the attempt counter only counted successes). Fixed with an attempt budget.
+- `RuleSet.from_flags` silently ignored unknown ids, which in an experiment harness would make a
+  mistyped `--no-rule` look like a free check. Now raises, and the same for heuristics and moves.
+- Not a bug in the search, but a real cost: **torch and the BLAS behind the SLSQP polish default
+  to one thread per core**, and on a 64-core box the oversubscription makes the small-batch CPU
+  path far slower than four threads. The two end-to-end optimizer tests took 107 s of wall and
+  **40 minutes of CPU**; with `tests/conftest.py` capping threads at 4 they take 5 s. The whole
+  suite (268 tests) now runs in 99 s. `pipeline.py --torch-threads` defaults to 4 for the same
+  reason.
+
+### Cold-start run of the pipeline (2026-09-17 07:20-08:04, ynez, 4 shared GPUs)
+
+`pipeline.py` over **all 48 n (3..50)**, one process per GPU on disjoint n (n mod 4), 44 minutes
+wall, `--nets-per-n 4 --evals-per-net 14 --generations 5 --pop 5 --elite 3 --batch 640 --steps 450
+--mem-cap-gb 1.5 --seed 20260917`. No shard hit its budget. Table:
+`runs/combined-pipeline-20260917.txt`. This is a **cold start**: no evolved programs, no
+checkpoints, nothing carried over except the library's topologies as one of six net generators.
+
+ynez's four GPUs were held by another user's job throughout (about 17 GB each, 18-34% utilization),
+so the run took 1.5 GB per GPU and the CPU path was capped at 2 torch threads. serrano was
+unreachable all session ("no route to host"), so this is a one-host run.
+
+- **11 of 48 n reach the published record**: n = 3, 4, 5, 6, 7, 12, 17, 24, 31, 40, 49. Ten of
+  them re-verify at tol 1e-9 **and** 1e-12. n=40 holds only at 1e-9: its area is
+  16.000000000000056 with one fence 6.5e-11 off unit length, so the polish did not fully tighten
+  at `--polish-iters 800` (production uses 1200). Reported as a tie at the project's certification
+  tolerance, not at 1e-12.
+- **n=6 is the interesting tie**: 1.47585295983, the Antoine Lagache record, found from scratch as
+  a 2-face layout with 2 T-junctions. The other ten ties are the unit-square grids and the tiny n.
+- **n=39: 15.28190316, beating the library's own record of 15.01647 by +0.26543**, verified at both
+  1e-9 and 1e-12 with max|len-1| = 5.2e-16. Still 0.253 below the published 15.53498. The structures
+  are not close: the pipeline's layout is F=16, **T=3**, V=27, b=17, where the library's is F=16,
+  **T=23**, V=47, b=23. A much simpler net at the same face count does better -- which is the kind
+  of thing the net stage exists to find, and the kind of thing a program-mutation search reaches
+  only by accident.
+- **Every n came back at exactly its target face count** (F = ceil(A_record) at all 48), because
+  rule 14 rejects anything short before it costs GPU time.
+
+Honest comparison, since these are not comparable budgets:
+
+| | n covered | total shortfall vs the page |
+|---|---|---|
+| pipeline, one 44-minute cold start | 48 (3..50) | **18.563** |
+| minima library, many GPU-hours over 4 days | 39 (12..50) | **4.540** |
+| pipeline, restricted to those same 39 n | 39 | 17.966 |
+
+The library is four times closer, as it should be after days of GPU time against 44 minutes. The
+pipeline is ahead at exactly one n (39) and behind at 30. What the run establishes is that the
+two-stage pipeline works end to end at every n, produces only referee-verified results, and lands
+in the right structural region immediately -- not that it is a better search. **It has had no A/B
+against `run_overnight.py` and is not a default.** The comparison worth running next is equal GPU
+time from the same frozen library snapshot, on the face-short n, where rule 14 says the existing
+search is structurally stuck.
+
+n = 3..11 are new: `run_overnight.py` defaults to n >= 12, so the harness had never searched them.
+Five of the nine tie their record.

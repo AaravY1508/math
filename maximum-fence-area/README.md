@@ -32,6 +32,11 @@ fence/builder.py    sketch DSL used by evolved proposer programs (seeds, cell gr
 fence/optimize.py   Stage 3: batched GPU Adam (augmented Lagrangian) -> CPU SLSQP polish -> referee
 fence/evolve.py     Stage 4: island MAP-Elites over propose_topology programs; per-GPU worker
 fence/minima.py     Stage 5: per-proposer library of distinct minima kept across runs; topology signatures
+fence/rules.py      the 14 hard rules, each a separately toggleable check, plus the rejection ledger
+fence/heuristics.py the 9 ranking heuristics, each separately toggleable and weighted
+fence/nets.py       Net stage: the counting envelope, the net generators, filter and rank
+fence/netevolve.py  Geometry stage: population over one net's continuous parameters + local topology moves
+pipeline.py         driver for the two stages: net enumeration -> per-net evolutionary search
 tests/              validation gate (must pass before any search starts)
 baselines.json      best-known areas scraped from the page
 run_overnight.py    supervisor: preflight tests, GPU sharding, restarts, checkpoints, final report
@@ -105,6 +110,130 @@ Main `run_overnight.py` flags:
 | `--verify-policy` | `worthy` (default: only polished candidates that would change something go to the referee) or `top` (the best ones always). |
 | `--m3-growth` | `on` (default): a growth step can add a cell of three fences -- on a unit-long piece of boundary, a unit square. `off` restores the previous behaviour, in which every path of 3 or more fences was scored as a bowtie and laid down in an order that crossed itself, so none was ever built. |
 | `--op-mix` | `legacy` (default): the operator weights every run so far used. `tuned` re-weights them by measured win rate; it did not pass its A/B (EXPERIMENTS.md change 5). |
+
+## The two-stage net pipeline (`pipeline.py`)
+
+`run_overnight.py` evolves *programs* that draw layouts. `pipeline.py` is the other
+way round: it enumerates the combinatorial structures first, throws away the ones
+that cannot work, and only then spends optimizer time on what is left.
+
+**Terminology.** A *fence* is one unit-length segment, and there are n of them. A
+*graph-edge* is a piece of a fence between consecutive points where something touches
+it, so a fence with k T-junctions in its interior is k + 1 graph-edges. `T` counts the
+distinct T-junction points, `V` the vertices, `F` the bounded faces and `b` the
+graph-edges on the outer boundary. With E = n + T graph-edges, Euler reads
+V − (n + T) + F = 1.
+
+### Stage 1: nets
+
+`fence/nets.py` produces candidate nets, rejects them with `fence/rules.py` and ranks
+the survivors with `fence/heuristics.py`.
+
+Two different things are called enumeration here, and the distinction matters:
+
+- `feasible_counts(n)` is **exhaustive over the counting envelope**: every (F, T, V, b)
+  the counting rules allow for this n. Cheap and complete.
+- the net **generators are constructive, not exhaustive**. They build concrete nets from
+  minimum-perimeter polyomino clusters, clusters plus an appendage, clusters with
+  boundary T-junction edits, nets driven up to rule 14's face bound by dissolving
+  corners, the search's own seed families, and the topologies already in `minima/`.
+  Enumerating all planar embeddings is out of reach well before n = 12, so no
+  completeness is claimed. `coverage()` reports which parts of the envelope the
+  constructed nets actually reached.
+
+### Stage 2: geometry
+
+`fence/netevolve.py` runs a population over one net's continuous parameters — vertex
+positions and each T-junction's position along its host — refining every candidate with
+the existing local optimizer (`fence/optimize.py`) and certifying with the referee.
+Mutations come in two kinds:
+
+- *geometry*: `jitter`, `jitter_boundary` (only the outer boundary moves, so the grid
+  part stays snapped), `stretch`, `slide_t`, `symmetrize`.
+- *topology*: `join_to_t` and `t_to_join` (an endpoint join ↔ a T-junction),
+  `slide_t_past` (a T-junction moves past its neighbour on the same host, which
+  re-orders the host's chain and so re-cuts the faces), `repin`, `add_face`,
+  `remove_face`, `face_fill`.
+
+Every mutant passes the same hard rules before it is allowed to cost optimizer time.
+
+### Everything is a separate switch
+
+```bash
+./venv/bin/python pipeline.py --list          # every rule, heuristic, generator and move
+./venv/bin/python pipeline.py --calibrate     # heuristics 1 and 2 against the verified configs
+./venv/bin/python pipeline.py --n-range 12-16 --stage1-only
+./venv/bin/python pipeline.py --n-range 22 --no-rule record_faces   # what does rule 14 cost?
+./venv/bin/python pipeline.py --n-range 13,16 --device cuda --nets-per-n 3 --evals-per-net 12
+./venv/bin/python pipeline.py --ablate rules --n-range 12,16,22,30,38   # what is each rule worth?
+
+# one process per GPU on disjoint n, then one table
+for k in 0 1 2 3; do
+  NS=$(python3 -c "print(','.join(str(n) for n in range(3,51) if n%4==$k))")
+  CUDA_VISIBLE_DEVICES=$k setsid nohup ./venv/bin/python pipeline.py --n-range "$NS" \
+      --device cuda --budget 50m --mem-cap-gb 1.5 --out runs/pipe-shard$k \
+      > runs/pipe-shard$k.log 2>&1 < /dev/null &
+done
+./venv/bin/python pipeline.py --combine runs/pipe-shard*
+```
+
+| Flag | Meaning |
+|---|---|
+| `--no-rule ID` | Switch off one hard rule (repeatable). `--only-rules a,b` enables exactly those. |
+| `--no-heuristic ID` / `--weight ID=W` | Zero or re-weight one ranking heuristic. |
+| `--no-move ID` / `--move-weight ID=W` / `--move-kinds` | Zero, re-weight or restrict the mutation moves. |
+| `--generators a,b` | Which net generators to run. |
+| `--boundary-model` | `measured` (default), `square-grid` (b = 2√(2n)) or `grid-only`. |
+| `--face-model` | `record` (default: F ≈ ⌈A_record⌉) or `half-n` (F ≈ n/2). |
+| `--nets-per-n`, `--evals-per-net`, `--generations`, `--pop`, `--elite` | Stage-2 size. |
+| `--mem-cap-gb` | Cap on one batch's GPU working set; lower it to share a GPU. |
+| `--torch-threads` | CPU threads for torch (default 4; unbounded on a 64-core box it is *slower*). |
+| `--ablate rules\|heuristics` | Switch each check off in turn over `--n-range` and print what it was worth. |
+| `--combine RUN_DIR...` | Merge the per-n results of several runs (one per GPU shard) into one table. |
+
+An unknown id in any of the toggle flags is an error, not a silent no-op: a typo would
+otherwise look like the check costing nothing.
+
+Rejections are counted per rule and printed with an example, so a run says *why*
+candidates died:
+
+```
+accepted 89/181 candidates; rejections by rule:
+  record_faces  (rule 14)      86   e.g. polyomino_appendage/c=6 + 7 fences: 9 faces, need >= 10 ...
+  bridgeless    (rule 10)       6   e.g. polyomino_tjunction/c=1 + 3 boundary T-edit(s): ... is a bridge
+```
+
+### The two model-based heuristics disagree with the records
+
+Heuristics 1 and 2 come from a square-grid model and were flagged as unverified. Measured
+on the 39 referee-verified configurations in `minima/records` (`pipeline.py --calibrate`):
+
+| | model | measured |
+|---|---|---|
+| boundary size b | 2√(2n) = 2.83√n | **3.31√n** (spread ±17%; 2.59√n for the T-free grid layouts, 3.65√n for the T-rich ones) |
+| face count F | n/2 | **0.402n**, and exactly ⌈total area⌉ on 37 of 39 |
+
+So the defaults follow the records: the boundary target is 3.31√n, and the face target is
+the record-based bound of hard rule 14 itself (⌈A_record⌉) rather than n/2, which overshoots
+by about 25% and would rank the right nets last. `--boundary-model square-grid` and
+`--face-model half-n` restore the model values for comparison.
+
+### Two heuristics are mostly subsumed by the hard rules
+
+Over the nets that survive the default rule set at n = 12, 22, 30, the spread of each
+heuristic's score is:
+
+| heuristic | distinct values | mean | does it discriminate? |
+|---|---|---|---|
+| face_quality, lattice_snap, convex_outer, t_at_boundary, boundary | 27-117 | 0.42-0.78 | yes, these do the ranking |
+| seed_family, symmetry | 5, 2 | 0.77, 0.36 | coarsely |
+| face_count | 4 | 0.98 | barely: rule 14 already filtered on it |
+| one_cluster | **1** | 1.00 | no: rules 6 and 13 already require one component |
+
+They are kept because they are not redundant once those rules are switched off -- with
+`--no-rule record_faces` the face-count heuristic is the only thing steering the face
+count at all -- but with the full rule set on, `--no-heuristic one_cluster` changes
+nothing, and that is expected rather than a bug.
 
 ## How it works
 
