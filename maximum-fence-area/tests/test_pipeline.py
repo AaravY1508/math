@@ -156,3 +156,15 @@ def test_a_typo_in_a_toggle_exits_cleanly_rather_than_tracebacking(capsys):
     assert P.main(["--n-range", "12", "--no-rule", "eluer"]) == 2
     err = capsys.readouterr().err
     assert "unknown rules" in err and "--list" in err
+
+
+def test_generators_flag_takes_a_comma_list_and_rejects_unknown_ids(tmp_path, capsys):
+    assert P.parse_generators("polyomino, library") == ["polyomino", "library"]
+    assert P.parse_generators(None) is None
+    rc = P.main(["--n-range", "12", "--stage1-only", "--no-library", "--max-candidates", "20",
+                 "--generators", "polyomino,builder_seeds", "--out", str(tmp_path)])
+    assert rc == 0
+    made = json.loads((tmp_path / "log.jsonl").read_text().splitlines()[1])["generated_by_family"]
+    assert set(made) == {"polyomino", "builder_seeds"}
+    assert P.main(["--n-range", "12", "--generators", "polyomino,nope"]) == 2
+    assert "unknown generators" in capsys.readouterr().err

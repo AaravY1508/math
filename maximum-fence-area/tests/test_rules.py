@@ -21,11 +21,16 @@ def cand_from_segments(segs, n=None, exact=True, family="test"):
     return R.NetCandidate(n=n or len(segs), topo=topo, coords=coords, family=family, exact=exact)
 
 
-def records():
+def records(min_n: int = 12):
+    """The library's verified records from n = 12 on: the 39 configurations the rules and the
+    heuristics were checked and calibrated against. n = 3..11 entered the library on 2026-09-21;
+    b ~ c sqrt(n) is not meant to hold there (n = 3 is a triangle with b = 3)."""
     out = []
     for p in sorted(glob.glob(str(HERE / "minima" / "records" / "N*.json")),
                     key=lambda s: int(Path(s).stem[1:])):
         d = json.loads(Path(p).read_text())
+        if d["n"] < min_n:
+            continue
         topo, X = G.config_from_json(d["config"])
         out.append((d["n"], topo, X, d["area"]))
     return out
@@ -39,9 +44,10 @@ def test_every_numbered_rule_is_registered():
 
 
 def test_rules_can_be_switched_off_one_at_a_time():
+    assert R.RuleSet().enabled == set(R.RULES)
     for rid in R.RULES:
         rs = R.RuleSet.from_flags([rid])
-        assert rs.disabled() == [rid]
+        assert set(rs.disabled()) == {rid}
         assert rid not in rs.enabled
     assert R.RuleSet.from_flags(only=["euler"]).enabled == {"euler"}
     with pytest.raises(ValueError):

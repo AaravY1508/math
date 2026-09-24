@@ -108,8 +108,10 @@ def test_lattice_max_and_grid_trivial():
 
 def test_schedule_weights():
     b = E.load_baselines()
-    assert E.schedule_weight(24, b[24], None) == 0.4
-    assert E.schedule_weight(24, b[24], 9.0) == pytest.approx(0.4 * E.TRIVIAL_TIE_WEIGHT)
+    assert E.schedule_weight(12, b[12], None) == 0.4
+    assert E.schedule_weight(12, b[12], 4.0) == pytest.approx(0.4 * E.TRIVIAL_TIE_WEIGHT)
+    # n=24's grid (9.0) was the record until 2026-09; the page now has 9.02394, so it gets a full share
+    assert E.schedule_weight(24, b[24], 9.0) == 1.0
     assert E.schedule_weight(20, b[20], 7.0) == 1.0     # grid-trivial but below the record: full share
     assert E.schedule_weight(50, b[50], 20.0) == E.LARGE_N_WEIGHT
     assert E.schedule_weight(34, b[34], None) == E.LARGE_N_WEIGHT
@@ -244,3 +246,40 @@ def test_resume_from_a_checkpoint_without_lineages(tmp_path):
     assert s2.epochs == {} and s2.barren == {}
     [e] = s2.islands[0].cells.values()
     assert e.program.proposer == E.proposer_id(p.source)
+
+
+# -- --trivial-block and --drop-exhausted (flag-gated, off by default) --------------------
+
+def _block_every_seed_lineage(tmp_path, n, area):
+    lib = M.MinimaLibrary(tmp_path / "minima")
+    props = {E.Program.from_genome(g).proposer for g in E.seed_genomes(n)}
+    for p in props:
+        lib.mark_trivial(p, n, {"verification": {"total_area": repr(area)}})
+    return props
+
+
+def test_ties_only_block_frees_lineages_where_the_grid_is_below_the_record(tmp_path):
+    grid = E.Program.from_genome(E.seed_genomes(24)[0])
+    M.MinimaLibrary(tmp_path / "minima").mark_trivial(grid.proposer, 24, {"verification": {"total_area": "9.0"}})
+    w = make_worker(tmp_path, "24")                              # default: block at any grid answer
+    w.records[24] = 9.0
+    w.state[24].baseline = {"A": 9.02394, "upper": 9.02395, "status": "best_known", "display": "9.02394+"}
+    assert w._blocked(24) == {grid.proposer}
+    t = make_worker(tmp_path, "24", extra=["--trivial-block", "ties"])
+    t.records[24] = 9.0
+    t.state[24].baseline = w.state[24].baseline
+    assert t._blocked(24) == set(), "the record is above the grid: the lineage may still find it"
+    t.state[24].baseline = {"A": 9.0, "upper": 9.0, "status": "trivial", "display": "9"}
+    assert t._blocked(24) == {grid.proposer}, "a grid tie is still blocked"
+
+
+def test_drop_exhausted_takes_a_dead_n_out_of_the_schedule(tmp_path):
+    _block_every_seed_lineage(tmp_path, 24, 9.0)
+    w = make_worker(tmp_path, "20,24", extra=["--drop-exhausted", "on", "--seed-elites", "0"])
+    w.records[24] = 9.0
+    for st in w.state.values():
+        st.seeded = 10 ** 6                          # past the initial seed sweep
+    assert w.make_job(24) is None and 24 in w.dropped
+    assert all(w.pick_n() == 20 for _ in range(20))
+    off = make_worker(tmp_path / "off", "20,24", extra=["--seed-elites", "0"])
+    assert off.dropped == set()

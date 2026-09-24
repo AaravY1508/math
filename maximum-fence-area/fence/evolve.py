@@ -354,16 +354,17 @@ class Mutator:
 FACE_WEIGHT = 0.25         # share of the face-aware operator (worker flag --face-weight)
 SEED_ELITES = 6            # library minima each n's archive starts from (--seed-elites)
 VERIFY_POLICY = "worthy"   # which polished candidates go to the referee (--verify-policy)
-OP_MIX = "legacy"          # mutation operator weights (--op-mix); "legacy" = the previous mix
-REMOVE_EDIT_FIX = False    # remove_edit on an edit-free genome jitters instead of re-seeding
+REMOVE_EDIT_FIX = False    # remove_edit on an edit-free genome jitters instead of re-seeding (--remove-edit-fix)
 TARGET_FACES = False       # face-short n seed and breed only from layouts with the target face count
                            # (--target-faces); see Worker._face_short
-                           # (--remove-edit-fix); independent of OP_MIX
+DROP_EXHAUSTED = False     # an n with every lineage blocked leaves the worker's schedule (--drop-exhausted)
+TRIVIAL_BLOCK = "grid"     # "grid": block lineages while n's best is any grid answer; "ties": only when it
+                           # ties the record (--trivial-block). Neither is A/B'd yet, so both keep old behaviour.
 
 # Probability that a job injects a fresh hand-written seed program once the initial sweep is done.
 # Measured over the 6 h run of 2026-09-12: seed-program evaluations won 2.2 run-bests per 1000,
 # against 11.7 for `elite` and 14.2 for the face operator's relocate.
-SEED_INJECT = {"legacy": 0.04, "tuned": 0.015}
+SEED_INJECT = 0.04
 
 
 def target_faces(base: dict | None) -> int | None:
@@ -382,21 +383,15 @@ class RandomMutator(Mutator):
     name = "random"
     BASE_OPS = [("jitter", 0.25), ("add_edit", 0.12), ("remove_edit", 0.05), ("seed", 0.08), ("symmetry", 0.08),
                 ("elite", 0.36), ("fresh", 0.06)]
-    # Re-weighted against run-best wins per 1000 evaluations, measured over the 58469 evaluations of
-    # the 6 h run of 2026-09-12: elite 11.7, jitter (param) 6.7, symmetry 5.7, add_edit 4.7, then
-    # edit- 2.9, seed 1.5 and fresh 0.7. `fresh` and `seed` together spent 9% of the run's
-    # evaluations on 6 of its 466 run-best improvements. They keep a floor rather than going to
-    # zero: they are the only operators that start a lineage from a hand-written program.
-    TUNED_OPS = [("jitter", 0.20), ("add_edit", 0.09), ("remove_edit", 0.04), ("seed", 0.03), ("symmetry", 0.06),
-                 ("elite", 0.56), ("fresh", 0.02)]
+    # A mix re-weighted against measured run-best win rates failed its A/B (EXPERIMENTS.md change 5)
+    # and was removed.
 
-    def __init__(self, rng: random.Random, face_weight: float = FACE_WEIGHT, op_mix: str = OP_MIX,
+    def __init__(self, rng: random.Random, face_weight: float = FACE_WEIGHT,
                  remove_edit_fix: bool = REMOVE_EDIT_FIX):
         self.rng = rng
         self.face_weight = face_weight
-        self.op_mix = op_mix
         self.remove_edit_fix = remove_edit_fix
-        self.ops = self.TUNED_OPS if op_mix == "tuned" else self.BASE_OPS
+        self.ops = self.BASE_OPS
 
     def op_weights(self, has_elites: bool, face_ok: bool) -> list[tuple[str, float]]:
         ops = [(k, 0.0 if k == "elite" and not has_elites else w) for k, w in self.ops]
@@ -489,7 +484,7 @@ class RandomMutator(Mutator):
             # Nothing to remove. Without this the `elif op == "remove_edit" and g.get("edits")`
             # below misses, the chain falls through to its `else` branch and the draw silently
             # becomes `fresh` -- the worst-scoring operator, and not what any weight asked for.
-            # Jitter the genome instead. Independent of --op-mix: this is a bug, not a weight.
+            # Jitter the genome instead.
             op = "jitter"
         if op == "jitter":
             tag = self._jitter(g)
@@ -638,10 +633,10 @@ class LLMMutator(Mutator):
                        proposer=parent.proposer)
 
 
-def make_mutator(kind: str, rng: random.Random, face_weight: float = FACE_WEIGHT, op_mix: str = OP_MIX,
+def make_mutator(kind: str, rng: random.Random, face_weight: float = FACE_WEIGHT,
                  remove_edit_fix: bool = REMOVE_EDIT_FIX, **kw) -> Mutator:
     if kind == "random":
-        return RandomMutator(rng, face_weight, op_mix, remove_edit_fix)
+        return RandomMutator(rng, face_weight, remove_edit_fix)
     if kind == "llm":
         return LLMMutator(rng, **kw)
     raise ValueError(f"unknown mutator {kind!r}")
@@ -756,10 +751,11 @@ class Worker:
                                        islands=[Archive() for _ in range(args.islands)])
         self._load_library()
         self.face_short = self._face_short() if getattr(args, "target_faces", "off") == "on" else set()
+        self.dropped: set[int] = set()      # n this worker stopped scheduling (--drop-exhausted)
         if not resumed and self.lib and args.seed_elites > 0:
             for n in self.ns:
                 self._seed_archive(n, args.seed_elites)
-        self.mutator = make_mutator(args.mutator, self.rng, face_weight=args.face_weight, op_mix=args.op_mix,
+        self.mutator = make_mutator(args.mutator, self.rng, face_weight=args.face_weight,
                                     remove_edit_fix=args.remove_edit_fix == "on")
         self.log({"event": "worker_start", "ns": self.ns, "resumed": resumed, "pid": os.getpid(),
                   "deadline": self.deadline, "mutator": args.mutator, "minima_dir": args.minima_dir})
@@ -901,8 +897,20 @@ class Worker:
 
     def _blocked(self, n: int) -> set[str]:
         """Lineages not to mutate at n: while n's best is the grid-trivial answer, a proposer
-        whose search already stabilized on it would only re-derive it."""
-        return self.trivial.get(n, set()) if is_grid_trivial(self._n_best_area(n), n) else set()
+        whose search already stabilized on it would only re-derive it.
+
+        Under --trivial-block ties, only while that grid answer also ties the record. When the
+        record is above the grid (n = 22, 27, 29, 36, 38, 41, 45, 47, 50 on 2026-09-20, and now
+        17, 24, 31, 40, 49 too), blocking every lineage that reached the grid shuts the search
+        down exactly where a new structure is needed: n=41 had 30 blocked lineages and n=50 27.
+        """
+        best = self._n_best_area(n)
+        if not is_grid_trivial(best, n):
+            return set()
+        if getattr(self.args, "trivial_block", TRIVIAL_BLOCK) == "ties" and \
+                not trivial_tie(n, self.state[n].baseline, best):
+            return set()
+        return self.trivial.get(n, set())
 
     def pick_n(self) -> int:
         """Fair share of wall time weighted by schedule_weight, with a little randomness. An n
@@ -916,7 +924,8 @@ class Worker:
                 gap = max(0.0, (s.baseline["A"] - best) / s.baseline["A"])
                 w *= 1.0 + max(0.0, 1.0 - gap / 0.05)
             return (s.time_spent + 5.0) / w * (0.85 + 0.3 * self.rng.random())
-        return min(self.ns, key=score)
+        live = [n for n in self.ns if n not in self.dropped] or self.ns
+        return min(live, key=score)
 
     def _elite_sketches(self, n: int, with_blocked: bool = False) -> list[dict]:
         """Verified configurations usable as literal seeds: own archive + best of n-1, n, n+1
@@ -966,8 +975,7 @@ class Worker:
         # every island first evaluates the hand-written seed programs (spread over islands),
         # later a fresh seed program is injected now and then to keep diversity; seeds of
         # blocked lineages are skipped
-        inject = SEED_INJECT.get(self.args.op_mix, SEED_INJECT["legacy"])
-        if open_seeds and (st.seeded < len(seeds) or len(isl) == 0 or self.rng.random() < inject):
+        if open_seeds and (st.seeded < len(seeds) or len(isl) == 0 or self.rng.random() < SEED_INJECT):
             while child is None:
                 cand = seeds[st.seeded % len(seeds)]
                 st.seeded += 1
@@ -989,6 +997,11 @@ class Worker:
             if parent_e is None and not open_seeds:
                 st.time_spent += 30.0          # nothing left to evolve at n: let the scheduler move on
                 self.log({"event": "n_exhausted", "n": n, "blocked": sorted(blocked)})
+                if getattr(self.args, "drop_exhausted", "off") == "on":
+                    # nothing at n can unblock while n is not evaluated, so the scheduler would come
+                    # back every ~15 s for nothing (266 such events for n=50, 0 evals in 1.37 h)
+                    self.dropped.add(n)
+                    self.log({"event": "n_dropped", "n": n})
                 return None
             parent = parent_e.program if parent_e else self.rng.choice(open_seeds)
             # the face-aware operator may also edit elites of lineages blocked at n: it changes their
@@ -1004,7 +1017,7 @@ class Worker:
                 child = self.mutator.mutate(parent, ctx)
             except MutationError as exc:
                 self.log({"event": "mutation_error", "n": n, "error": str(exc)[:300]})
-                child = RandomMutator(self.rng, self.args.face_weight, self.args.op_mix,
+                child = RandomMutator(self.rng, self.args.face_weight,
                                       self.args.remove_edit_fix == "on").mutate(parent, ctx)
         if child.proposer == proposer_id(child.source):
             self.roots.setdefault(child.proposer, (child.genome, child.source))
@@ -1474,26 +1487,21 @@ def worker_parser() -> argparse.ArgumentParser:
                          "that would raise n's best, their archive cell or their proposer's pending minimum")
     ap.add_argument("--seed-elites", type=int, default=SEED_ELITES,
                     help="start each n's archive from its best k distinct library minima (fresh starts; 0: empty)")
+    ap.add_argument("--drop-exhausted", choices=["on", "off"], default="on" if DROP_EXHAUSTED else "off",
+                    help="on: an n where every lineage is blocked leaves this worker's schedule for the run")
+    ap.add_argument("--trivial-block", choices=["grid", "ties"], default=TRIVIAL_BLOCK,
+                    help="grid: block lineages while n's best is a grid answer; ties: only when it ties the record")
     ap.add_argument("--target-faces", choices=["on", "off"], default="on" if TARGET_FACES else "off",
                     help="on: an n whose record has fewer faces than floor(record) + 1 seeds its archive and "
                          "picks parents only from layouts with at least that many faces; off: by area, as before")
     ap.add_argument("--remove-edit-fix", choices=["on", "off"], default="on" if REMOVE_EDIT_FIX else "off",
                     help="on: a remove_edit draw on a genome with no edits jitters it; off: the previous "
                          "behaviour, where that draw fell through the operator chain and became `fresh`")
-    ap.add_argument("--op-mix", choices=["legacy", "tuned"], default=OP_MIX,
-                    help="mutation operator weights: legacy, or tuned against the run-best win rate measured "
-                         "per operator over the 6 h run of 2026-09-12 (more elite, less fresh/seed, and "
-                         "remove_edit on an edit-free genome jitters instead of silently re-seeding)")
-    ap.add_argument("--m3-growth", choices=["on", "off"], default="on" if Bd.M3_GROWTH else "off",
-                    help="on: growth paths of 3 fences are laid down and scored in the right vertex order, so a "
-                         "single growth step can add a near-unit cell; off: the previous behaviour, in which every "
-                         "such path crossed itself and no 3-fence cell was ever built")
     return ap
 
 
 def worker_main(argv=None):
     args = worker_parser().parse_args(argv)
-    Bd.M3_GROWTH = args.m3_growth == "on"
     Worker(args).run()
 
 

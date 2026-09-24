@@ -850,3 +850,175 @@ search is structurally stuck.
 
 n = 3..11 are new: `run_overnight.py` defaults to n >= 12, so the harness had never searched them.
 Five of the nine tie their record.
+
+## Day 5 (2026-09-21)
+
+### Baselines re-scraped: 23 records rose in four days
+
+`baselines.json` re-scraped 2026-09-21 12:16 UTC (page sha `78504fff`, was `75166e3e`). **23 of 48
+records rose**, including all five grid records the protocol above calls "likely optimal": n = 17,
+24, 31, 40, 49 are now 6.01086, 9.02394, 12.03575, 16.04172, 20.07383 (Yanis Gomes, September
+2026). The grid answer is no longer the record at any n >= 17, so the protocol's exclusion of those
+n no longer applies. The library's total gap against the page is **5.398** today, not 4.540 --
+the page moved, the library did not. `tests/test_baselines.py` spot values updated with the scrape.
+
+### Stranded pipeline results promoted into the library
+
+`pipeline.py` had no write-back path, so everything the 2026-09-17 pipeline run found stayed in its
+run directory. Promoted (`runs/exp-20260921/promote.py`), each re-verified by the referee at 1e-9
+**and** 1e-12 first -- all ten pass both: **n = 39 at 15.28190316 (+0.26543 over the library's
+15.01647)**, and n = 3..11, which had no library records at all. `pipeline.py` now writes every n's
+verified best to `records/` (if larger) and indexes every net's best as a minimum of a `pipeline`
+lineage (`--library-writes`, on by default), under the new per-n library lock.
+
+### Rule 14, resolved
+
+Rule 14 (F >= ceil(A_record)) rejects our own records at 22, 27, 29, 33, 36, 38, 42, 45, 47 (against
+the 09-17 page) because each is **exactly one face short**, and at seven of them every face is
+already at area 1.0 -- saturated grid answers with no geometric headroom. The rule is right; the
+rejection is the diagnosis. What was wrong is where it bites: the `library` generator yields the
+record, the rule rejects it, and the strongest known geometry never reached stage 2 at exactly the
+n that needed it.
+
+Rule 14 is also looser than it could be. A face with m graph-edges holds at most
+`isoperimetric_cap(m)` (a triangle sqrt(3)/4, not 1), so **rule 15 `area_cap`: sum of face caps >=
+A_record**. No record violates it against its own area (39 of 39), and against today's page it
+rejects rule 14's set plus n = 39, 41, 50, whose layouts carry a triangle (n = 41: 16 unit squares +
+a triangle, cap 16.433 < 16.448).
+
+### Measured before changing anything: the stage-1 ranking is anti-correlated with capacity
+
+Of the distinct nets that pass the rules, how many have a cap sum >= the record, and how many of the
+top 4 (`--nets-per-n 4`: all that ever get optimizer time): n=22 32 of 44 but **1 of 4** (the most
+capacious ranked 42nd of 44); n=45 24 of 49 but **0 of 4**; n=39 7 of 69, **0 of 4**. With rule 15 on,
+every survivor can hold the record by construction.
+
+### Refuted before implementing: re-fitting the boundary heuristic
+
+The records' b/sqrt(n) splits most sharply at T <= 2 / T > 2 (2.56 vs 3.65), and the per-regime
+spreads (5% / 7%) are much tighter than the pooled 0.17 in use. Scored on the 39 records, the
+current interpolation (T_RICH = 8, spread 0.17) is still the best model: mean 0.946, worst 0.56.
+Tight per-regime spreads give 0.728 (0.707 leave-one-out) with 8-9 records below 0.5 -- they would
+rank real record layouts down. Not changed.
+
+### 9. Collapsed faces: open them before re-optimizing (`inflate_face`) -- FAILED, off
+
+Five records carry a face at area <= 0.036 (n = 13, 15, 39, 41, 50; 4.9e-7 at 41 and 50) whose
+isoperimetric caps add up to 3.72 units of headroom. Hypothesis: an optimizer failure, recoverable by
+pushing the face's vertices along the gradient of its own area and re-optimizing.
+Pre-registered: same seeds and settings, arms differ only in the inflation; PASS = strictly higher
+best area at >= 2 of the 5 and no fewer polish successes. **Result: equal at 5 of 5** -- all 30
+runs returned to the record's area, the inflated ones to the same collapsed face (n=41: 4.9e-7 again).
+The collapsed face is a genuine local optimum of those topologies; the headroom is capacity the
+bound allows and the geometry cannot realize. Those n need a topology change as well. The move stays
+registered with weight 0. (`runs/exp-20260921/inflate-n*.json`)
+
+### 10. Net stage: rule 15 + `area_capacity` + `library_face_target` -- pre-registered
+
+Treatment: defaults as of this commit (rule 15 on; heuristic 10 `area_capacity`, weight 1.5; generator
+`library_face_target`, which dissolves corners of the library's best layouts until rules 14 and 15
+both pass -- at n = 45 all four top-ranked nets come from it). Control: `--no-rule area_cap
+--no-heuristic area_capacity` and the six previous generators. Everything else equal: n = 22, 33, 38,
+41, 45 (stuck, their library bests fail rule 15), one process per (arm, n), both arms of an n on the
+same serrano GPU, `--budget 20m --per-n-budget auto --nets-per-n 8 --evals-per-net 40 --generations 8
+--pop 6 --elite 3 --batch 1024 --steps 450 --workers 4 --seed 20260921`, each arm from its own copy
+of the post-promotion library (`minima-snapshots/20260921-ab`).
+
+PASS requires both: (i) summed best verified area over the 5 n, treatment >= control - 0.02;
+(ii) treatment >= control at >= 3 of the 5. On a FAIL the night's net-stage run uses the control
+settings (the plumbing fixes stay: they do not change what is searched).
+
+**Result: FAIL** (arms 05:40-05:57 PDT; `runs/exp-20260921/score_ab.txt`). Every arm spent its
+caps (8 nets x 40 evaluations, 307-320 evaluations each) before the 20 min budget.
+
+| n | library | control | treatment |
+|---|---|---|---|
+| 22 | 8.00000 | **7.56168** | 7.47370 |
+| 33 | 12.79735 | 12.00000 | 12.00000 |
+| 38 | 15.00000 | 14.32450 | **14.43234** |
+| 41 | 16.00000 | 16.00000 | 16.00000 |
+| 45 | 18.00000 | **17.55649** | 17.47820 |
+| sum | | 67.44267 | 67.38424 (-0.05843) |
+
+(i) failed (-0.058 < -0.02), (ii) failed (2 of 5). The differences are within what one lucky net
+makes, and neither arm reached the library at any of the five n: a layout with the extra face the
+record needs starts 0.4-0.8 below the saturated grid answer, whichever stage-1 ranking picks it
+(the same gap the day-3 table found for target-F layouts). The ranking was measurably wrong and
+rule 15 fixes it by construction, but a better-ranked candidate list did not turn into area here.
+As pre-registered: rule 15, heuristic 10 and `library_face_target` go **off by default**
+(`--rule area_cap`, `--weight area_capacity=1.5`, `--generators ...,library_face_target` turn them
+on), and the night's net stage runs with the control settings.
+
+Also found while setting the arms up: **`--generators` had never worked** -- the value was passed on
+as a string and iterated character by character ("unknown net generator 'p'"), so no generator could
+be switched off from the command line. Fixed (`parse_generators`), with a test.
+
+## Night run (2026-09-21 05:57-~12:00 PDT, serrano 5 GPUs, `runs/night-20260921-125751`)
+
+Capacity: serrano's five GPUs only. temescal lists GPUs 0, 2, 3 as idle but its driver wants a reboot
+(GPU 1 fell off the bus) and refuses cuInit on every device -- the new preflight CUDA probe rejects
+all three; ynez's four are another user's (llama-server, load 65 on 64 cores) and were left alone.
+
+- **Explore** (GPUs 0-2): `pipeline.py`, control net-stage settings, `--budget 6h --per-n-budget auto
+  --nets-per-n 30 --evals-per-net 40`, live library writes, over the 23 n where the library's best
+  layout cannot reach the record by rule 15 or needs a new topology anyway: 8-11, 13, 15, 17, 22,
+  24, 27, 29, 31, 33, 36, 38, 39, 40, 41, 42, 45, 47, 49, 50 (gap 3.438).
+- **Exploit** (GPUs 3-4): `run_overnight.py --tag serrano-exploit`, production defaults, over the
+  18 geometry-limited n: 14, 18-21, 23, 25, 26, 28, 30, 32, 34, 35, 37, 43, 44, 46, 48 (gap 2.278).
+- Excluded, already at their record: 3-7, 12, 16.
+- Launch library = `minima-snapshots/20260921-ab` (post-promotion; nothing wrote to the live library
+  between that copy and the launch). The run was launched from an uncommitted tree; the diff and the
+  new files are saved in the run dir (`working-tree.diff`, `untracked-files.tgz`, `base-commit`).
+- **07:07 PDT, added**: the three explore GPUs measured **21-28% busy** over 40 s (run_overnight's
+  two: 93-100%) -- pipeline.py polishes and verifies synchronously, the deferred throughput change.
+  A second pipeline process per explore GPU (`explore-b-shard*`, `launch_explore_b.sh`, `--budget
+  285m --seed 20260923`) uses the idle cycles with experiment 10's treatment settings: failed as a
+  default, but they generate different nets (library-layout dissolves) from the control's. Labelled
+  as an extra explorer; both processes of a GPU share its n, which the library lock makes safe.
+- **09:39 PDT**: `explore-shard1` finished all 8 of its n (nets exhausted, not budget). **09:45, added**:
+  a second `run_overnight.py` on the freed GPU 1 (`runs/20260921-164559-serrano-exploit-b`, `--budget
+  135m --seed 20260921`) over the six largest-gap exploit n, 32, 37, 43, 44, 46, 48 -- where the night's
+  steady gains were coming from -- alongside the first instance, safe under the library lock.
+- **11:12 PDT, added**: `explore-shard2` finished its 8 n at ~11:10; a third `run_overnight.py` on GPU 2 (`runs/*-serrano-exploit-c`, `--budget 46m`) over exploit n 20, 25, 30, 34, 35 until the end.
+
+### Night run result (ended 12:00 PDT; `runs/night-20260921-125751/final-comparison.txt`)
+
+Every process ended cleanly: all six explore shards finished their full n lists, all three
+run_overnight supervisors exited normally with 0 deaths, hangs or restarts.
+
+**13 library records improved, every one re-verified by the referee at 1e-9 and, separately, at
+1e-12.** None reaches its published record; the page's ties stay n = 3-7, 12, 16.
+
+| | n = 12..50 | n = 3..11 |
+|---|---|---|
+| shortfall, library after the 2026-09-14 run | 5.39832 | no records |
+| at tonight's launch (after promoting the stranded n=39 and n=3..11) | 5.13288 | 0.58330 |
+| **now** | **4.93865** | **0.48865** |
+| tonight | -0.19423 | -0.09465 |
+
+All shortfalls are against the page as scraped 2026-09-21; the 4.540 quoted on 09-14 was against a page
+that has since moved (5.398 is the same library against today's page).
+
+| source | GPU time | gain | where |
+|---|---|---|---|
+| explore (pipeline, 6 processes on 3 GPUs) | 3 GPUs x 6 h | +0.13394 | n=10 +0.06067, n=39 +0.03929, n=8 +0.03396, n=9 +0.00002 |
+| exploit (run_overnight, GPUs 3-4) | 2 x 6 h | +0.07263 | n=37 +0.07263 (n=28 +3e-9, noise) |
+| exploit-b (GPU 1, from 09:45) | 2.25 h | +0.06390 | n=46 +0.03222, n=44 +0.02296, n=48 +0.00454, n=43 +0.00261, n=32 +0.00157 |
+| exploit-c (GPU 2, from 11:13) | 0.77 h | +0.01842 | n=30 +0.01635, n=35 +0.00207 |
+
+What the night says:
+- **The stuck n stayed stuck.** At the 16 capacity-capped n other than 39, no layout with the extra
+  face the record needs reached the saturated grid answer: the best were 0.2-0.8 below it (n=33 12.297
+  vs 12.797, n=45 17.645 vs 18.0, n=47 18.564 vs 19.0). They are now indexed as `pipeline` minima, so a
+  later run starts from them rather than from the grid. Filling those layouts, not finding or ranking
+  them, is the open problem.
+- The exploit gains came mostly from the two instances added on GPUs freed mid-run (+0.082 in 3 GPU-h
+  against +0.073 in 12 GPU-h for the main instance), at n the main instance also held: a fresh seed and
+  a fresh archive on a few high-gap n paid better than a sixth hour on a long-running archive. Observational.
+- explore vs explore-b (control vs experiment 10's treatment settings, different seeds, shared GPUs,
+  explore-b started 70 min later): control higher at 7 of 18 n, treatment at 8, equal at 3 -- no sign of
+  a systematic difference, consistent with the A/B.
+- Utilization: the pipeline GPUs ran at 21-28% with one process and 44-46% with two; run_overnight's at
+  89-100%. Asynchronous polish in `netevolve` (deferred today) is the pipeline's largest throughput lever.
+- 3750 build errors across the explore shards; the ledger's sample is `symmetrize` leaving a zero-length
+  edge, but which moves account for the count is not logged (stage 2 keeps move stats in memory only).

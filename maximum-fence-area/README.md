@@ -33,7 +33,7 @@ fence/optimize.py   Stage 3: batched GPU Adam (augmented Lagrangian) -> CPU SLSQ
 fence/evolve.py     Stage 4: island MAP-Elites over propose_topology programs; per-GPU worker
 fence/minima.py     Stage 5: per-proposer library of distinct minima kept across runs; topology signatures
 fence/rules.py      the 14 hard rules, each a separately toggleable check, plus the rejection ledger
-fence/heuristics.py the 9 ranking heuristics, each separately toggleable and weighted
+fence/heuristics.py the 8 ranking heuristics, each separately toggleable and weighted
 fence/nets.py       Net stage: the counting envelope, the net generators, filter and rank
 fence/netevolve.py  Geometry stage: population over one net's continuous parameters + local topology moves
 pipeline.py         driver for the two stages: net enumeration -> per-net evolutionary search
@@ -108,8 +108,13 @@ Main `run_overnight.py` flags:
 | `--seed-elites` | Start each n's archive from its k best library minima (default 6; 0 = off: an empty archive). |
 | `--focus` | Search only the k n of `--n-range` closest to their records (0 = all). |
 | `--verify-policy` | `worthy` (default: only polished candidates that would change something go to the referee) or `top` (the best ones always). |
-| `--m3-growth` | `on` (default): a growth step can add a cell of three fences -- on a unit-long piece of boundary, a unit square. `off` restores the previous behaviour, in which every path of 3 or more fences was scored as a bowtie and laid down in an order that crossed itself, so none was ever built. |
-| `--op-mix` | `legacy` (default): the operator weights every run so far used. `tuned` re-weights them by measured win rate; it did not pass its A/B (EXPERIMENTS.md change 5). |
+| `--drop-exhausted` | `off` (default). `on`: an n where every lineage is blocked leaves its worker's schedule for the run, instead of being re-picked every ~15 s for nothing (n=50 got 0 evaluations in 1.37 h that way). Not A/B'd yet. |
+| `--trivial-block` | `grid` (default): block a lineage at n while n's best is any grid answer. `ties`: only while that grid answer ties the record -- since 2026-09 the page beats the grid at every n >= 17. Not A/B'd yet. |
+| `--no-cuda-probe` | Skip the preflight check that CUDA initializes on each selected GPU. The check exists because a host whose driver wants a reboot lists idle GPUs in `nvidia-smi` and still refuses `cuInit` on all of them. |
+
+The preflight takes GPUs by the index `nvidia-smi` prints (a GPU that fell off the bus leaves a gap,
+e.g. `0, 2, 3`), leaves out any GPU holding more than 1 GB of someone else's memory rather than
+sharing it, and leaves out any GPU where a fresh process cannot run a CUDA matmul.
 
 ## The two-stage net pipeline (`pipeline.py`)
 
@@ -183,13 +188,19 @@ done
 | `--no-heuristic ID` / `--weight ID=W` | Zero or re-weight one ranking heuristic. |
 | `--no-move ID` / `--move-weight ID=W` / `--move-kinds` | Zero, re-weight or restrict the mutation moves. |
 | `--generators a,b` | Which net generators to run. |
-| `--boundary-model` | `measured` (default), `square-grid` (b = 2√(2n)) or `grid-only`. |
-| `--face-model` | `record` (default: F ≈ ⌈A_record⌉) or `half-n` (F ≈ n/2). |
 | `--nets-per-n`, `--evals-per-net`, `--generations`, `--pop`, `--elite` | Stage-2 size. |
 | `--mem-cap-gb` | Cap on one batch's GPU working set; lower it to share a GPU. |
 | `--torch-threads` | CPU threads for torch (default 4; unbounded on a 64-core box it is *slower*). |
+| `--library-writes` | `on` (default): each n's verified best becomes the library record if larger, and every net's best is indexed as a minimum of the `pipeline` lineage. `off`: read the library only. |
+| `--per-n-budget` | Time box per n: a duration, or `auto` = the remaining `--budget` split over the remaining n. |
+| `--grace` | Seconds past `--budget` before the watchdog stops the run (then 90 s more to a hard exit; default 120). |
 | `--ablate rules\|heuristics` | Switch each check off in turn over `--n-range` and print what it was worth. |
 | `--combine RUN_DIR...` | Merge the per-n results of several runs (one per GPU shard) into one table. |
+
+**Resuming.** Re-run the same command with the same `--out`: every n whose `n<NNN>.json` is already
+there is skipped (each n's rng depends only on `--seed` and n, so a finished n is exactly what a
+re-run would produce). A SIGTERM or SIGINT, or the budget watchdog, stops the run through the same
+path, so `report.txt` and `summary.json` are written for every finished n whatever ended it.
 
 An unknown id in any of the toggle flags is an error, not a silent no-op: a typo would
 otherwise look like the check costing nothing.
@@ -213,27 +224,44 @@ on the 39 referee-verified configurations in `minima/records` (`pipeline.py --ca
 | boundary size b | 2√(2n) = 2.83√n | **3.31√n** (spread ±17%; 2.59√n for the T-free grid layouts, 3.65√n for the T-rich ones) |
 | face count F | n/2 | **0.402n**, and exactly ⌈total area⌉ on 37 of 39 |
 
-So the defaults follow the records: the boundary target is 3.31√n, and the face target is
-the record-based bound of hard rule 14 itself (⌈A_record⌉) rather than n/2, which overshoots
-by about 25% and would rank the right nets last. `--boundary-model square-grid` and
-`--face-model half-n` restore the model values for comparison.
+So the targets follow the records: the boundary target interpolates on the layout's own T
+count, from 2.59√n at T = 0 to 3.65√n at T ≥ 8, and the face target is the record-based bound of
+hard rule 14 itself (⌈A_record⌉) rather than n/2, which overshoots by about 25%. The model values
+are no longer selectable.
 
-### Two heuristics are mostly subsumed by the hard rules
+### A heuristic subsumed by the hard rules was removed
 
-Over the nets that survive the default rule set at n = 12, 22, 30, the spread of each
-heuristic's score is:
+`one_cluster` (heuristic 5) scored every net that survives rules 6 and 13 as 1.00, so it ranked
+nothing and was deleted. `face_count` is nearly constant under rule 14 (4 distinct values) but is
+kept: with `--no-rule record_faces` it is the only thing steering the face count.
 
-| heuristic | distinct values | mean | does it discriminate? |
-|---|---|---|---|
-| face_quality, lattice_snap, convex_outer, t_at_boundary, boundary | 27-117 | 0.42-0.78 | yes, these do the ranking |
-| seed_family, symmetry | 5, 2 | 0.77, 0.36 | coarsely |
-| face_count | 4 | 0.98 | barely: rule 14 already filtered on it |
-| one_cluster | **1** | 1.00 | no: rules 6 and 13 already require one component |
+## Removed after failing their A/B (2026-09-23)
 
-They are kept because they are not redundant once those rules are switched off -- with
-`--no-rule record_faces` the face-count heuristic is the only thing steering the face
-count at all -- but with the full rule set on, `--no-heuristic one_cluster` changes
-nothing, and that is expected rather than a bug.
+Kept in `EXPERIMENTS.md` so they are not re-run; the code is gone (git ref
+`refs/backup/pre-cleanup-20260923` holds the last tree that had it):
+
+| removed | experiment | why |
+|---|---|---|
+| `--op-mix tuned` | 5 | weights landed as designed, area -0.205, wins/1000 unchanged |
+| `inflate_face` move | 9 | 0 of 5 collapsed-face records improved; those faces are true local optima |
+| rule 15 `area_cap`, heuristic 10 `area_capacity`, generator `library_face_target` | 10 | -0.058 summed over 5 stuck n, 2 of 5 |
+| `--m3-growth off`, `--boundary-model`, `--face-model`, `--rule` | 4, calibration | only restored a known bug or model values the records contradict |
+
+Still switchable, off by default and not yet proven either way: `--remove-edit-fix` (6, looked like
+noise around a real effect), `--target-faces` (7, resolved 2 of 11 face-short n, exploratory),
+`--drop-exhausted`, `--trivial-block ties` (not A/B'd).
+
+## Status (2026-09-23)
+
+- Library records exist for every n = 3..50, each verified by the referee at 1e-9 and 1e-12.
+- Ties with the page: n = 3-7, 12, 16. No n beats its record.
+- Shortfall against the page scraped 2026-09-21: **4.939** over n = 12..50, **0.489** over n = 3..11
+  (after the 2026-09-21 night run, which raised 13 records).
+- Open problem: the face-short n (22, 27, 29, 33, 36, 38, 41, 45, 47, 50, ...) sit on a saturated
+  grid answer. Layouts with the extra face the record needs are found and indexed, but fill
+  0.2-0.8 below the grid answer.
+- Throughput: `pipeline.py` keeps a GPU only 21-28% busy (synchronous polish); `run_overnight.py`
+  89-100%.
 
 ## How it works
 
@@ -338,7 +366,8 @@ operate on the program's GENOME:
 - apply a symmetry group (C_m orbits)
 - re-seed from an elite
 - change the seed family (ring, grid, pinwheel)
-- jitter growth-policy parameters
+- jitter growth-policy parameters (growth steps can add cells of 1-3 fences; a 3-fence cell on a
+  unit-long piece of boundary is a unit square)
 - face-aware edit (share `--face-weight`), which edits the layout of one of n's own
   verified elites where it loses area instead of regrowing from the program. A connected
   layout with n fences and J joints (vertices that are not T-pins) has exactly
@@ -360,6 +389,10 @@ Anthropic SDK's standard resolution: `ANTHROPIC_API_KEY` or an `ant auth login`
 profile. Nothing is stored.
 
 ### Stage 5: minima library
+
+Every read-modify-write at n (a record, a minimum's index, a trivial marker's count) runs under
+`minima/locks/N<n>.lock`, created with `O_EXCL` so it also excludes writers on other hosts sharing
+the library over NFS; a lock older than 2 minutes belongs to a dead writer and is taken over.
 
 Every program belongs to a **proposer**: the lineage of the hand-written seed
 program it descends from. The proposer id is a hash of that seed program's source,

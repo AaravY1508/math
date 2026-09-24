@@ -24,7 +24,9 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import signal
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -33,6 +35,8 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from fence import heuristics as H            # noqa: E402
+from fence import geometry as G              # noqa: E402
+from fence import minima as Mn               # noqa: E402
 from fence import nets as N                  # noqa: E402
 from fence import netevolve as NE            # noqa: E402
 from fence import optimize as O              # noqa: E402
@@ -68,17 +72,33 @@ def stage1(n: int, args, rng, ruleset, hset, lib, baselines) -> N.NetStageResult
         "record_area": rec,
         "min_faces": R.min_faces_for(rec),
         "library": lib,
-        "boundary_c": None if args.boundary_model == "measured" else H.BOUNDARY_C[args.boundary_model],
-        "face_model": args.face_model,
         "shapes_per_c": args.shapes_per_c,
     }
     return N.enumerate_nets(n, rng, ruleset, hset, ctx,
-                            generators=args.generators or None,
+                            generators=parse_generators(args.generators),
                             max_candidates=args.max_candidates, keep=args.keep_nets)
 
 
+def index_minimum(lib, n: int, config: dict, meta: dict) -> bool:
+    """Index one verified configuration as a minimum of the pipeline's lineage at n.
+
+    The library keeps distinct minima per lineage (same topology and area within 1e-6 is the
+    same minimum), so every net's best goes in: that is what gives later runs, and the
+    pipeline's own `library` generator, the topologies this run found and not only its record.
+    """
+    if lib is None or not config or not config.get("verification", {}).get("valid"):
+        return False
+    try:
+        topo, X = G.config_from_json(config)
+        form = Mn.canonical_form(topo)
+    except Exception:  # noqa: BLE001 -- a config the signature code cannot read is simply not indexed
+        return False
+    new, _ = lib.add_minimum(Mn.PIPELINE_PROPOSER, n, config, form.signature, X[form.orders[0]], meta)
+    return new
+
+
 def stage2(n: int, s1: N.NetStageResult, args, rng, ruleset, hset, moves, baselines,
-           pool, log, deadline) -> dict:
+           pool, log, deadline, lib=None, run_name: str = "") -> dict:
     base = baselines.get(n)
     rec = base["A"] if base else None
     ctx = {"record_area": rec, "min_faces": R.min_faces_for(rec),
@@ -101,6 +121,10 @@ def stage2(n: int, s1: N.NetStageResult, args, rng, ruleset, hset, moves, baseli
                "origin": net.cand.origin, "F": net.cand.stats.F, "T": net.cand.stats.T,
                "b": net.cand.stats.b, **{q: v for q, v in res.to_json().items()
                                          if q in ("best_area", "evaluations", "seconds")}}
+        if res.best is not None and res.best.config:
+            row["indexed"] = index_minimum(lib, n, res.best.config,
+                                           {"run": run_name, "via": "pipeline", "net_rank": k,
+                                            "net_family": net.cand.family, "origin": res.best.origin})
         per_net.append(row)
         log({"event": "net_done", "n": n, **row})
         if res.best is not None and res.best.area is not None and \
@@ -155,6 +179,8 @@ def calibration_report(lib_dir: str, baselines: dict) -> str:
     cfgs = []
     for p in recs:
         d = json.loads(p.read_text())
+        if d["n"] < 12:
+            continue      # the coefficients are for n >= 12; at n = 3 the record is a triangle, b = 3
         topo, X = G.config_from_json(d["config"])
         cfgs.append((d["n"], topo, X, d["area"]))
     cal = H.calibrate(cfgs)
@@ -172,14 +198,14 @@ def calibration_report(lib_dir: str, baselines: dict) -> str:
            "     pooled, the n=12 record (a 2x2 grid, b=8) scores 0.21 and ranks below four worse layouts.",
            f"     The default target interpolates on the candidate's own T, from {H.BOUNDARY_C_GRID} at T=0",
            f"     to {H.BOUNDARY_C_RICH} at T >= {H.T_RICH}; that scores the 39 records 0.946 on average against 0.663",
-           "     pooled. --boundary-model square-grid or grid-only pins a single coefficient instead.",
+           "     pooled.",
            "",
            "heuristic 2 (face count F):",
            f"  square-grid model   F = {cal['face_slope_model']} * n",
            f"  measured            F = {cal['face_slope_measured']} * n",
            f"  F == ceil(total area) on {cal['face_equals_ceil_area']} of {cal['n_configs']} configurations",
            "  -> the face count is the record-based bound of hard rule 14 itself, not n/2, which",
-           "     overshoots by ~25%; the default target is ceil(A_record) (--face-model half-n restores the model)."]
+           "     overshoots by ~25%; the target is ceil(A_record)."]
     return "\n".join(out)
 
 
@@ -228,17 +254,19 @@ def ablate(kind: str, ns: list[int], args, ruleset, hset, lib, baselines) -> str
             out.append(stage1(n, args, rng, rs, hset, lib, baselines))
         return out
 
+    # `distinct` counts every net that passed the rules; `ranked` is truncated to --keep-nets,
+    # so counting it would cap every ablation at keep_nets * len(ns) and hide what a rule rejects
     base = generate(ruleset)
-    base_kept = sum(len(r.ranked) for r in base)
+    base_kept = sum(r.distinct for r in base)
     lines = [f"ablation over n = {ns}, stage 1 only, {args.max_candidates} candidates per n",
-             f"baseline: {base_kept} nets kept"]
+             f"baseline: {base_kept} distinct nets pass the rules"]
     if kind == "rules":
         lines += ["", f"{'rule off':<16} {'kept':>6} {'delta':>7}   what it was rejecting"]
         for rid in sorted(R.RULES, key=lambda k: R.RULES[k].number):
             if rid not in ruleset.enabled:
                 continue
-            kept = sum(len(r.ranked) for r in generate(R.RuleSet(ruleset.enabled - {rid},
-                                                                ruleset.ctx)))
+            kept = sum(r.distinct for r in generate(R.RuleSet(ruleset.enabled - {rid},
+                                                               ruleset.ctx)))
             lines.append(f"{rid:<16} {kept:>6} {kept - base_kept:>+7}   {R.RULES[rid].summary[:52]}")
         return "\n".join(lines)
 
@@ -246,8 +274,7 @@ def ablate(kind: str, ns: list[int], args, ruleset, hset, lib, baselines) -> str
     # what it is worth is how much of the ranking it is responsible for
     def rank(hs, res):
         rec = baselines.get(res.n, {}).get("A")
-        ctx = {"record_area": rec, "min_faces": R.min_faces_for(rec),
-               "boundary_c": None if args.boundary_model == "measured" else H.BOUNDARY_C[args.boundary_model], "face_model": args.face_model}
+        ctx = {"record_area": rec, "min_faces": R.min_faces_for(rec)}
         order = sorted(res.ranked, key=lambda x: -hs.score(x.cand, ctx).total)
         return [x.cand.origin for x in order[:5]]
 
@@ -305,8 +332,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--max-candidates", type=int, default=800)
     p.add_argument("--keep-nets", type=int, default=25)
     p.add_argument("--shapes-per-c", type=int, default=8)
-    p.add_argument("--boundary-model", default="measured", choices=sorted(H.BOUNDARY_C))
-    p.add_argument("--face-model", default="record", choices=list(H.FACE_MODELS))
     # stage 2
     p.add_argument("--nets-per-n", type=int, default=4)
     p.add_argument("--evals-per-net", type=int, default=16)
@@ -329,7 +354,28 @@ def build_parser() -> argparse.ArgumentParser:
                         "oversubscribes every core and the Adam stage runs slower than on 4.")
     p.add_argument("--minima-dir", default=str(HERE / "minima"))
     p.add_argument("--no-library", action="store_true", help="do not seed stage 1 from the minima library")
+    p.add_argument("--library-writes", choices=["on", "off"], default="on",
+                   help="on (default): each n's verified best becomes the library record if it is larger, and "
+                        "every net's best is indexed as a minimum of the 'pipeline' lineage. Writes take the "
+                        "library's per-n lock, so a host sharing the library cannot lose one.")
+    p.add_argument("--per-n-budget", default=None,
+                   help="time box per n: a duration (e.g. 25m), or 'auto' = the remaining --budget split evenly "
+                        "over the remaining n, so time an early n leaves unused rolls forward (default: none)")
+    p.add_argument("--grace", type=float, default=120.0,
+                   help="seconds past --budget before the watchdog stops the run (then 90 s more to a hard exit)")
     return p
+
+
+def parse_generators(spec: str | None) -> list[str] | None:
+    """`--generators a,b` -> ["a", "b"]; an unknown id raises. (The flag used to be passed on as
+    the raw string, so any use of it iterated characters and failed on generator 'p'.)"""
+    if not spec:
+        return None
+    names = [g.strip() for g in spec.split(",") if g.strip()]
+    unknown = [g for g in names if g not in N.GENERATORS]
+    if unknown:
+        raise ValueError(f"unknown generators: {unknown} (known: {sorted(N.GENERATORS)})")
+    return names
 
 
 def parse_budget(s: str | None) -> float | None:
@@ -366,11 +412,13 @@ def main(argv=None) -> int:
         hset = H.HeuristicSet.from_flags(args.no_heuristic, args.weight)
         moves = NE.MoveSet.from_flags(args.no_move, args.move_weight,
                                       args.move_kinds.split(",") if args.move_kinds else None)
+        parse_generators(args.generators)
     except ValueError as exc:
         print(f"error: {exc}\n\nrun with --list to see every rule, heuristic, generator and move",
               file=sys.stderr)
         return 2
     lib = None if args.no_library else MinimaLibrary(args.minima_dir)
+    writes = lib is not None and args.library_writes == "on"
     ns = parse_ns(args.n_range)
     out_dir = Path(args.out or HERE / "runs" / f"pipeline-{time.strftime('%Y%m%d-%H%M%S')}")
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -378,11 +426,13 @@ def main(argv=None) -> int:
     deadline = (time.time() + budget) if budget else None
 
     log_fh = (out_dir / "log.jsonl").open("a")
+    log_lock = threading.Lock()
 
     def log(rec: dict):
         rec.setdefault("t", round(time.time(), 3))
-        log_fh.write(json.dumps(rec, default=str) + "\n")
-        log_fh.flush()
+        with log_lock:
+            log_fh.write(json.dumps(rec, default=str) + "\n")
+            log_fh.flush()
 
     if args.ablate:
         print(ablate(args.ablate, ns, args, ruleset, hset, lib, baselines))
@@ -390,29 +440,80 @@ def main(argv=None) -> int:
     print(f"n = {ns}")
     print(f"rules off: {ruleset.disabled() or 'none'}; heuristics off: {hset.disabled() or 'none'}; "
           f"moves off: {sorted(set(NE.MOVES) - set(moves.enabled())) or 'none'}")
-    print(f"results -> {out_dir}")
+    print(f"results -> {out_dir}" + ("" if writes else "  (library writes off)"), flush=True)
     log({"event": "start", "argv": sys.argv[1:], "ns": ns, "rules_off": ruleset.disabled(),
-         "heuristics_off": hset.disabled(), "moves_off": sorted(set(NE.MOVES) - set(moves.enabled()))})
+         "heuristics_off": hset.disabled(), "moves_off": sorted(set(NE.MOVES) - set(moves.enabled())),
+         "pid": os.getpid(), "host": os.uname().nodename, "library_writes": writes})
+
+    # A stop request (SIGTERM from a supervisor or the watchdog, SIGINT from a terminal) unwinds
+    # through `finally`, so the report and summary of every finished n are always written.
+    class Stop(BaseException):
+        """BaseException, not Exception: the stage-2 code treats `except Exception` around the
+        optimizer as a failed individual, and a stop request must not be swallowed there."""
+
+    def on_signal(signum, frame):
+        raise Stop(f"signal {signum}")
+
+    prev = {sig: signal.signal(sig, on_signal) for sig in (signal.SIGTERM, signal.SIGINT)}
+    finished = threading.Event()        # set when main returns, so the watchdog never outlives it
+
+    if deadline:
+        def watchdog():
+            if finished.wait(max(0.0, deadline + args.grace - time.time())):
+                return
+            log({"event": "watchdog_stop", "over_budget_s": round(time.time() - deadline, 1)})
+            os.kill(os.getpid(), signal.SIGTERM)
+            if finished.wait(90):
+                return
+            log({"event": "watchdog_hard_exit"})
+            os._exit(3)
+        threading.Thread(target=watchdog, daemon=True).start()
 
     pool = None
     if not args.stage1_only and args.workers > 1:
         import multiprocessing as mp
+        # single-threaded BLAS in the polish pool, as run_overnight.py gives its workers: the
+        # pool already runs one process per core, and pool_init sets these only after the child
+        # has imported numpy, when OpenBLAS has already sized its thread pool
+        for var in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
+            os.environ[var] = "1"
         pool = mp.get_context("spawn").Pool(args.workers, initializer=O.pool_init)
     results, total_ledger = [], R.Ledger()
+    stopped = None
     try:
-        for n in ns:
+        for idx, n in enumerate(ns):
             if deadline and time.time() > deadline:
                 print(f"budget reached, stopping before n={n}")
                 break
+            done_file = out_dir / f"n{n:03d}.json"
+            if done_file.exists() and not args.stage1_only:
+                # resume: the rng of every n is seeded from (seed, n) alone, so a finished n is
+                # exactly what re-running it would give, and skipping it loses nothing
+                r = json.loads(done_file.read_text())
+                r["ledger"] = R.Ledger.from_json(r.get("ledger", {}))
+                results.append(r)
+                total_ledger.merge(r["ledger"])
+                if writes and r.get("best") and r["best"].get("config"):
+                    lib.update_record(n, r["best"]["config"], {"run": out_dir.name, "via": "pipeline",
+                                                               "proposer": Mn.PIPELINE_PROPOSER})
+                log({"event": "resumed_skip", "n": n})
+                print(f"n={n:<3} already done in {done_file.name}, skipped", flush=True)
+                continue
             rng = np.random.default_rng(args.seed + 1000 * n)
             t0 = time.time()
+            n_deadline = deadline
+            if args.per_n_budget == "auto" and deadline:
+                todo = sum(1 for m in ns[idx:] if not (out_dir / f"n{m:03d}.json").exists())
+                n_deadline = t0 + (deadline - t0) / max(1, todo)
+            elif args.per_n_budget and args.per_n_budget != "auto":
+                n_deadline = min(deadline or float("inf"), t0 + parse_budget(args.per_n_budget))
             s1 = stage1(n, args, rng, ruleset, hset, lib, baselines)
             log({"event": "stage1", "n": n, **s1.to_json()})
             print(f"n={n:<3} stage 1: {s1.ledger.accepted}/{s1.ledger.seen} candidates passed "
                   f"the rules, {s1.distinct} distinct nets ({s1.duplicates} repeats) "
                   f"in {time.time() - t0:.0f}s"
                   + (f", best score {s1.ranked[0].score.total:.3f} {s1.ranked[0].cand.family}"
-                     if s1.ranked else ", NONE SURVIVED"))
+                     if s1.ranked else ", NONE SURVIVED"), flush=True)
             for line in s1.ledger.table().splitlines()[1:]:
                 print("      " + line.strip())
             if args.stage1_only:
@@ -420,40 +521,58 @@ def main(argv=None) -> int:
                                 "stage1": s1.to_json(), "coverage": N.coverage(s1)})
                 total_ledger.merge(s1.ledger)
                 continue
-            r = stage2(n, s1, args, rng, ruleset, hset, moves, baselines, pool, log, deadline)
+            log({"event": "n_start", "n": n, "time_box_s": round(n_deadline - t0, 1) if n_deadline else None})
+            r = stage2(n, s1, args, rng, ruleset, hset, moves, baselines, pool, log, n_deadline,
+                       lib=lib if writes else None, run_name=out_dir.name)
             results.append(r)
             total_ledger.merge(r["ledger"])
             base = baselines.get(n)
             a = r["best"]["area"] if r["best"] else None
+            if writes and r["best"] and r["best"].get("config"):
+                # the record goes in before n's result file: a result file on disk means the library has it
+                r["record_updated"] = lib.update_record(
+                    n, r["best"]["config"], {"run": out_dir.name, "via": "pipeline", "proposer": Mn.PIPELINE_PROPOSER,
+                                             "net_family": r["best"].get("net_family"),
+                                             "origin": r["best"].get("origin")})
+                if r["record_updated"]:
+                    log({"event": "library_record", "n": n, "area": a})
             print(f"n={n:<3} stage 2: best {a if a is None else round(a, 6)} "
-                  f"(record {base['A'] if base else '-'}, {classify(a, base)}) "
-                  f"in {time.time() - t0:.0f}s")
-            (out_dir / f"n{n:03d}.json").write_text(json.dumps(
-                {k: (v.to_json() if isinstance(v, R.Ledger) else v) for k, v in r.items()},
-                indent=1, default=str))
+                  f"(record {base['A'] if base else '-'}, {classify(a, base)})"
+                  + (" -> new library record" if r.get("record_updated") else "")
+                  + f" in {time.time() - t0:.0f}s", flush=True)
             if r["best"] and r["best"].get("config"):
                 (out_dir / f"best-n{n:03d}.json").write_text(json.dumps(r["best"]["config"], indent=1))
+            tmp = done_file.with_name(done_file.name + ".tmp")
+            tmp.write_text(json.dumps({k: (v.to_json() if isinstance(v, R.Ledger) else v) for k, v in r.items()},
+                                      indent=1, default=str))
+            os.replace(tmp, done_file)
+    except Stop as exc:
+        stopped = str(exc)
+        print(f"stopping on {stopped}; writing the report for the {len(results)} finished n", flush=True)
+        log({"event": "stopped", "why": stopped, "finished": [r["n"] for r in results]})
     finally:
+        for sig, h in prev.items():
+            signal.signal(sig, h)
         if pool is not None:
             pool.terminate()
             pool.join()
+        table = report(results, baselines)
+        print()
+        print(table)
+        print()
+        print(total_ledger.table())
+        (out_dir / "report.txt").write_text(table + "\n\n" + total_ledger.table() + "\n")
+        (out_dir / "summary.json").write_text(json.dumps(
+            {"ns": ns, "rules_off": ruleset.disabled(), "heuristics_off": hset.disabled(),
+             "stopped": stopped, "ledger": total_ledger.to_json(),
+             "results": [{"n": r["n"], "best_area": (r["best"] or {}).get("area"),
+                          "coverage": r.get("coverage"),
+                          "per_net": r.get("per_net", [])} for r in results]},
+            indent=1, default=str))
+        log({"event": "end", "stopped": stopped})
+        finished.set()
         log_fh.close()
-
-    table = report(results, baselines)
-    print()
-    print(table)
-    print()
-    print(total_ledger.table())
-    (out_dir / "report.txt").write_text(table + "\n\n" + total_ledger.table() + "\n")
-    (out_dir / "summary.json").write_text(json.dumps(
-        {"ns": ns, "rules_off": ruleset.disabled(), "heuristics_off": hset.disabled(),
-         "ledger": total_ledger.to_json(),
-         "results": [{"n": r["n"], "best_area": (r["best"] or {}).get("area"),
-                      "coverage": r.get("coverage"),
-                      "per_net": r.get("per_net", [])} for r in results]},
-        indent=1, default=str))
-    return 0
-
+    return 0 if stopped is None else 4
 
 if __name__ == "__main__":
     raise SystemExit(main())

@@ -527,4 +527,5 @@ def coverage(res: NetStageResult) -> dict:
 
 
 def describe_generators() -> str:
-    return "\n".join(f"  {g.id:<22} {g.summary}" for g in GENERATORS.values())
+    return "\n".join(f"  {g.id:<22} {g.summary}" + ("" if g.default else "  [off by default]")
+                     for g in GENERATORS.values())

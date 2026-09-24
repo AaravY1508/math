@@ -20,9 +20,12 @@ Library directory
     proposers/<proposer>/N<n>.trivial.json  this proposer's search at n stabilized on the grid-trivial answer
     records/N<n>.json                       best verified configuration for n over all runs
 
-Each n belongs to exactly one GPU worker, so N<n>.* and records/N<n>.json have a single
-writer, also when several hosts share the library over NFS with disjoint n-ranges; every
-write is atomic (temp file + rename).
+    locks/N<n>.lock                         held while a writer reads-modifies-writes anything at n
+
+Every write is atomic (temp file + rename), and every read-modify-write at n (a record, a
+minimum's index k, a trivial marker's count) runs under n's lock file, created with O_EXCL
+so it also excludes writers on other hosts sharing the library over NFS. Runs still give
+each host a disjoint n-range, but a mistake there now costs time rather than a record.
 
 Topology signature
 ------------------
@@ -53,6 +56,9 @@ import numpy as np
 from fence import geometry as G
 
 MINIMUM_EPS = 1e-6       # same topology and |area difference| <= this: the same minimum
+LOCK_STALE_S = 120.0     # a lock older than this was left by a dead writer and may be taken over
+LOCK_POLL_S = 0.02
+PIPELINE_PROPOSER = "pipeline"   # lineage id of configurations found by pipeline.py (no seed program)
 
 
 # ---------------------------------------------------------------------------
@@ -223,11 +229,60 @@ def _read(path: Path) -> dict | None:
         return None
 
 
+class NLock:
+    """Exclusive per-n lock: a file created with O_EXCL, which NFSv3 honours across hosts.
+
+    Held for milliseconds (one read and one atomic write). A lock whose file is older than
+    LOCK_STALE_S belongs to a writer that died holding it; it is moved aside with a rename,
+    which only one contender can win, and the contender that wins retries the create.
+    """
+
+    def __init__(self, path: Path, stale_s: float = LOCK_STALE_S):
+        self.path = path
+        self.stale_s = stale_s
+        self.token = f"{socket.gethostname()}:{os.getpid()}:{time.time():.6f}"
+
+    def __enter__(self):
+        while True:
+            try:
+                fd = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+            except FileExistsError:
+                try:
+                    age = time.time() - self.path.stat().st_mtime
+                except FileNotFoundError:
+                    continue                     # released between the create and the stat
+                if age > self.stale_s:
+                    aside = self.path.with_name(f"{self.path.name}.stale.{socket.gethostname()}.{os.getpid()}")
+                    try:
+                        os.rename(self.path, aside)
+                        aside.unlink(missing_ok=True)
+                    except FileNotFoundError:
+                        pass                     # another contender took it over first
+                    continue
+                time.sleep(LOCK_POLL_S)
+                continue
+            with os.fdopen(fd, "w") as fh:
+                fh.write(self.token)
+            return self
+
+    def __exit__(self, *exc):
+        try:
+            if self.path.read_text() == self.token:
+                self.path.unlink()
+        except FileNotFoundError:
+            pass
+        return False
+
+
 class MinimaLibrary:
     def __init__(self, root):
         self.root = Path(root)
         (self.root / "proposers").mkdir(parents=True, exist_ok=True)
         (self.root / "records").mkdir(parents=True, exist_ok=True)
+        (self.root / "locks").mkdir(parents=True, exist_ok=True)
+
+    def lock(self, n: int) -> NLock:
+        return NLock(self.root / "locks" / f"N{n}.lock")
 
     def _pdir(self, proposer: str) -> Path:
         return self.root / "proposers" / proposer
@@ -267,17 +322,18 @@ class MinimaLibrary:
         Returns (True, doc) for a new minimum, (False, existing doc) for a duplicate.
         """
         area = float(config["verification"]["total_area"])
-        existing = self.minima_of(proposer, n)
-        for m in existing:
-            if same_minimum(m, signature, area):
-                return False, m
-        k = max((m["k"] for m in existing), default=-1) + 1
-        doc = {"name": f"N{n}.{k}", "proposer": proposer, "n": n, "k": k, "area": area,
-               "area_50": config["verification"]["total_area"], "signature": signature,
-               "epsilon": MINIMUM_EPS, "canon_coords": np.asarray(canon_coords, dtype=float).tolist(),
-               "indexed": time.strftime("%Y-%m-%dT%H:%M:%S"), **(meta or {}), "config": config}
-        self._pdir(proposer).mkdir(parents=True, exist_ok=True)
-        _atomic_write(self._pdir(proposer) / f"N{n}.{k}.json", doc)
+        with self.lock(n):
+            existing = self.minima_of(proposer, n)
+            for m in existing:
+                if same_minimum(m, signature, area):
+                    return False, m
+            k = max((m["k"] for m in existing), default=-1) + 1
+            doc = {"name": f"N{n}.{k}", "proposer": proposer, "n": n, "k": k, "area": area,
+                   "area_50": config["verification"]["total_area"], "signature": signature,
+                   "epsilon": MINIMUM_EPS, "canon_coords": np.asarray(canon_coords, dtype=float).tolist(),
+                   "indexed": time.strftime("%Y-%m-%dT%H:%M:%S"), **(meta or {}), "config": config}
+            self._pdir(proposer).mkdir(parents=True, exist_ok=True)
+            _atomic_write(self._pdir(proposer) / f"N{n}.{k}.json", doc)
         return True, doc
 
     def best(self, n: int, k: int) -> list[dict]:
@@ -307,12 +363,13 @@ class MinimaLibrary:
     # -- grid-trivial markers -------------------------------------------------------
     def mark_trivial(self, proposer: str, n: int, config: dict, meta=None) -> None:
         p = self._pdir(proposer) / f"N{n}.trivial.json"
-        old = _read(p) or {}
-        now = time.strftime("%Y-%m-%dT%H:%M:%S")
-        p.parent.mkdir(parents=True, exist_ok=True)
-        _atomic_write(p, {"proposer": proposer, "n": n, "area": float(config["verification"]["total_area"]),
-                          "count": int(old.get("count", 0)) + 1, "first": old.get("first", now), "last": now,
-                          **(meta or {}), "config": config})
+        with self.lock(n):
+            old = _read(p) or {}
+            now = time.strftime("%Y-%m-%dT%H:%M:%S")
+            p.parent.mkdir(parents=True, exist_ok=True)
+            _atomic_write(p, {"proposer": proposer, "n": n, "area": float(config["verification"]["total_area"]),
+                              "count": int(old.get("count", 0)) + 1, "first": old.get("first", now), "last": now,
+                              **(meta or {}), "config": config})
 
     def trivial_proposers(self, n: int) -> set[str]:
         return {f.parent.name for f in (self.root / "proposers").glob(f"*/N{n}.trivial.json")}
@@ -330,15 +387,17 @@ class MinimaLibrary:
         return _read(self.root / "records" / f"N{n}.json")
 
     def update_record(self, n: int, config: dict, meta=None) -> bool:
-        """Keep the best verified configuration for n. Re-reads the saved record right
-        before writing and only replaces it with a strictly larger area."""
+        """Keep the best verified configuration for n: only a strictly larger area replaces the
+        saved record. The read and the write happen under n's lock, so of two writers racing on
+        the same n the larger area always survives, whichever host each is on."""
         area = float(config["verification"]["total_area"])
-        cur = self.record(n)
-        if cur is not None and area <= float(cur["area"]) + 1e-12:
-            return False
-        _atomic_write(self.root / "records" / f"N{n}.json",
-                      {"n": n, "area": area, "updated": time.strftime("%Y-%m-%dT%H:%M:%S"), **(meta or {}),
-                       "config": config})
+        with self.lock(n):
+            cur = self.record(n)
+            if cur is not None and area <= float(cur["area"]) + 1e-12:
+                return False
+            _atomic_write(self.root / "records" / f"N{n}.json",
+                          {"n": n, "area": area, "updated": time.strftime("%Y-%m-%dT%H:%M:%S"), **(meta or {}),
+                           "config": config})
         return True
 
 

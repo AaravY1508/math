@@ -21,13 +21,14 @@ def test_complete_table():
 
 
 def test_spot_values_from_page():
-    # values as printed on the page at the last scrape (2026-09-14); update them only with a re-scrape
+    # values as printed on the page at the last scrape (2026-09-21); update them only with a re-scrape
     b = load()["baselines"]
     assert abs(b["3"]["A"] - 3 ** 0.5 / 4) < 1e-15
     assert b["6"]["A"] == 1.47585 and b["6"]["truncated"]
     assert b["15"]["A"] == 5.06345 and b["15"]["decimals"] == 5
     assert b["12"]["A"] == 4.0 and b["12"]["status"] == "trivial"
-    assert b["50"]["A"] == 20.42937
+    assert b["50"]["A"] == 20.55829
+    assert b["17"]["A"] == 6.01086 and b["17"]["status"] == "best_known"   # the grid was beaten in 2026-09
 
 
 def test_parser_reads_every_printed_form():

@@ -7,8 +7,7 @@ of a net is the weighted mean of its enabled scores.
 
 Two of the heuristics come with targets taken from a square-grid model, and the
 problem statement says to trust the records where they disagree. They do
-disagree, so the defaults here are the measured values and the model values are
-kept available by flag. Measured on the 39 best configurations in `minima/`
+disagree, so the targets here are the measured values. Measured on the 39 best configurations in `minima/`
 (each referee-verified; 1 ties its record, the rest sit 0-3% below), see
 `fence.heuristics.calibrate`:
 
@@ -16,7 +15,7 @@ kept available by flag. Measured on the 39 best configurations in `minima/`
                       (relative spread +-17%, and strongly split: 2.59*sqrt(n)
                       for the T-junction-free grid layouts, 3.65*sqrt(n) for the
                       T-rich ones). The model under-counts the boundary of every
-                      good T-rich layout, so `MODEL` is not the default.
+                      good T-rich layout.
   face count F        model n/2; measured 0.402*n, and exactly ceil(A_record) on
                       all 39 of 39. The face-count target is therefore the
                       record-based bound of hard rule 14 itself, not n/2, which
@@ -44,14 +43,10 @@ from fence.rules import NetCandidate, isoperimetric_cap
 # optimization: T = 0 scores against the grid regime, T >= T_RICH against the T-rich one,
 # and in between the coefficient interpolates. Over the 39 verified configurations this
 # raises the mean boundary score from 0.663 to 0.946 and the worst from 0.21 to 0.56.
-BOUNDARY_C = {"measured": 3.31, "square-grid": 2.0 * math.sqrt(2.0), "grid-only": 2.59}
 BOUNDARY_C_GRID = 2.59          # measured over the T-junction-free configurations
 BOUNDARY_C_RICH = 3.65          # measured over the T-rich ones (T >= 5)
 T_RICH = 8                      # T at which the coefficient reaches the T-rich value
 BOUNDARY_SPREAD = 0.17          # relative sigma of b / target across the 39 configs
-
-# Face-count models.
-FACE_MODELS = ("record", "half-n")
 
 
 # ---------------------------------------------------------------------------
@@ -111,10 +106,7 @@ def _boundary(c: NetCandidate, ctx: dict) -> tuple[float, str]:
 
 
 def boundary_target(n: int, T: int, ctx: dict) -> float:
-    """Expected outer-boundary size. `boundary_c` in ctx pins a single coefficient instead."""
-    fixed = ctx.get("boundary_c")
-    if fixed is not None:
-        return float(fixed) * math.sqrt(n)
+    """Expected outer-boundary size, interpolated on the layout's own T-junction count."""
     w = min(1.0, T / float(T_RICH))
     return (BOUNDARY_C_GRID + (BOUNDARY_C_RICH - BOUNDARY_C_GRID) * w) * math.sqrt(n)
 
@@ -133,9 +125,7 @@ def _face_count(c: NetCandidate, ctx: dict) -> tuple[float, str]:
 
 
 def face_target(n: int, ctx: dict) -> int:
-    """Soft target for the face count."""
-    if ctx.get("face_model", "record") == "half-n":
-        return max(1, int(round(n / 2)))
+    """Soft target for the face count: ceil(A_record), rule 14's bound (n/2 overshoots by ~25%)."""
     rec = ctx.get("record_area")
     return max(1, math.ceil((rec if rec is not None else a_est(n)) - 1e-12))
 
@@ -172,12 +162,8 @@ def _t_at_boundary(c: NetCandidate, ctx: dict) -> tuple[float, str]:
     return on / T, f"{on}/{T} pins on the boundary"
 
 
-# -- 5 -----------------------------------------------------------------------
-@heuristic("one_cluster", 5, "one connected cluster, no nested loops, no separate components",
-           weight=1.0)
-def _one_cluster(c: NetCandidate, ctx: dict) -> tuple[float, str]:
-    k = c.stats.n_components
-    return (1.0 if k == 1 else 0.0), f"{k} component(s)"
+# 5 (one_cluster) was removed: rules 6 and 13 already require one component, so it scored
+# every surviving net 1.0.
 
 
 # -- 6 -----------------------------------------------------------------------

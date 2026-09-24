@@ -65,6 +65,48 @@ def write_blocked(reason: str, detail: str = ""):
     print(f"!!! BLOCKED: {reason} (details in {BLOCKED})", flush=True)
 
 
+BUSY_MIB = 1024          # a GPU holding more than this is someone else's (ours hold nothing before the run)
+
+CUDA_PROBE = ("import torch; assert torch.cuda.is_available(), 'cuda unavailable'; "
+              "x = torch.ones(256, 256, device='cuda'); assert float((x @ x).sum()) == 256.0 ** 3")
+
+
+def check_gpus(rows: list[str], requested: list[int], busy_mib: int = BUSY_MIB):
+    """Split the requested physical GPU ids by nvidia-smi's `index, name, memory.used` rows.
+
+    Membership is by the index nvidia-smi prints, not by row count: a GPU that has fallen off
+    the bus is left out of the listing, so the indices can have a gap (0, 2, 3), and comparing
+    an index against the number of rows would reject GPU 3 as missing.
+    Returns (usable, missing, busy).
+    """
+    used = {}
+    for ln in rows:
+        parts = [q.strip() for q in ln.split(",")]
+        try:
+            used[int(parts[0])] = int(parts[2].split()[0])
+        except (ValueError, IndexError):
+            continue
+    missing = [g for g in requested if g not in used]
+    busy = [g for g in requested if g in used and used[g] > busy_mib]
+    usable = [g for g in requested if g in used and g not in busy]
+    return usable, missing, busy
+
+
+def cuda_works(dev: int, timeout: float = 180.0) -> tuple[bool, str]:
+    """Whether a fresh process can initialize CUDA on physical GPU `dev` and run a matmul.
+
+    nvidia-smi listing a GPU as idle is not enough: on a host where another GPU needs a reboot
+    the driver refuses cuInit for every device, and every worker would start and do nothing.
+    """
+    env = {**os.environ, "CUDA_VISIBLE_DEVICES": str(dev)}
+    try:
+        p = subprocess.run([sys.executable, "-c", CUDA_PROBE], env=env, capture_output=True, text=True,
+                           timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return False, "timed out"
+    return p.returncode == 0, (p.stderr.strip().splitlines() or [""])[-1][:200]
+
+
 class Supervisor:
     def __init__(self, args):
         self.args = args
@@ -106,14 +148,33 @@ class Supervisor:
         except Exception as exc:  # noqa: BLE001
             write_blocked("nvidia-smi failed", repr(exc))
             return False
-        missing = [g for g in self.args.gpu_ids if g >= len(gpus)]
+        usable, missing, busy = check_gpus(gpus, self.args.gpu_ids)
         if missing:
-            write_blocked(f"asked for GPUs {missing} but nvidia-smi lists {len(gpus)}", "\n".join(gpus))
+            write_blocked(f"asked for GPUs {missing} but nvidia-smi does not list them", "\n".join(gpus))
             return False
-        busy = [ln for ln in gpus if int(ln.split(",")[0]) in self.args.gpu_ids
-                and int(ln.split(",")[2].split()[0]) > 1024]
         if busy:
-            print("!!! warning: requested GPUs already hold memory of other processes: " + "; ".join(busy), flush=True)
+            # someone else's job: never share a GPU with it, leave it out and say so loudly
+            print(f"!!! GPUs {busy} already hold > {BUSY_MIB} MiB of other processes' memory; leaving them out",
+                  flush=True)
+        if self.args.cuda_probe:
+            bad = {}
+            for g in list(usable):
+                ok, why = cuda_works(g)
+                if not ok:
+                    bad[g] = why
+                    usable.remove(g)
+            if bad:
+                print("!!! CUDA does not initialize on GPUs " +
+                      "; ".join(f"{g}: {why}" for g, why in bad.items()) + " -- leaving them out", flush=True)
+        if not usable:
+            write_blocked(f"none of GPUs {self.args.gpu_ids} is usable (busy {busy}, missing {missing})",
+                          "\n".join(gpus))
+            return False
+        if usable != self.args.gpu_ids:
+            self.args.gpu_ids, self.args.gpus = usable, len(usable)
+            if self.args.cpu_procs_auto:
+                self.args.cpu_procs = auto_cpu_procs(self.args.gpus)
+            print(f"  running on GPUs {usable} ({self.args.cpu_procs} CPU polish processes each)", flush=True)
         self.gpu_info = gpus
         return True
 
@@ -164,14 +225,14 @@ class Supervisor:
             cmd += ["--seed-elites", str(a.seed_elites)]
         if a.verify_policy is not None:
             cmd += ["--verify-policy", a.verify_policy]
-        if a.m3_growth is not None:
-            cmd += ["--m3-growth", a.m3_growth]
-        if a.op_mix is not None:
-            cmd += ["--op-mix", a.op_mix]
         if a.remove_edit_fix is not None:
             cmd += ["--remove-edit-fix", a.remove_edit_fix]
         if a.target_faces is not None:
             cmd += ["--target-faces", a.target_faces]
+        if a.drop_exhausted is not None:
+            cmd += ["--drop-exhausted", a.drop_exhausted]
+        if a.trivial_block is not None:
+            cmd += ["--trivial-block", a.trivial_block]
         if resume:
             cmd.append("--resume")
         # single-threaded BLAS in the worker and (inherited) in its CPU polish pool: the pool
@@ -445,6 +506,8 @@ def main(argv=None):
     ap.add_argument("--polish-iters", type=int, default=1200)
     ap.add_argument("--tol", type=float, default=1e-9, help="referee tolerance (absolute, unit scale)")
     ap.add_argument("--cpu-procs", type=int, default=0, help="CPU polish processes per GPU worker (0 = auto)")
+    ap.add_argument("--no-cuda-probe", dest="cuda_probe", action="store_false",
+                    help="skip the preflight check that CUDA initializes on every selected GPU")
     ap.add_argument("--checkpoint-every", type=float, default=300.0)
     ap.add_argument("--job-timeout", type=float, default=600.0)
     ap.add_argument("--hang-timeout", type=float, default=1200.0, help="restart a worker after this long without heartbeat")
@@ -465,17 +528,16 @@ def main(argv=None):
                     help="start each n's archive from its k best library minima (default: fence.evolve's; 0 = off)")
     ap.add_argument("--verify-policy", choices=["top", "worthy"], default=None,
                     help="which polished candidates go to the referee (default: fence.evolve's)")
+    ap.add_argument("--drop-exhausted", choices=["on", "off"], default=None,
+                    help="on: an n with every lineage blocked leaves its worker's schedule (default: fence.evolve's)")
+    ap.add_argument("--trivial-block", choices=["grid", "ties"], default=None,
+                    help="when grid-trivial lineages are blocked at n (default: fence.evolve's)")
     ap.add_argument("--target-faces", choices=["on", "off"], default=None,
                     help="on: face-short n seed and breed only from layouts with the target face count "
                          "(default: fence.evolve's)")
     ap.add_argument("--remove-edit-fix", choices=["on", "off"], default=None,
                     help="on: a remove_edit draw with no edit to remove jitters the genome instead of "
                          "silently becoming `fresh` (default: fence.evolve's)")
-    ap.add_argument("--op-mix", choices=["legacy", "tuned"], default=None,
-                    help="mutation operator weights (default: fence.evolve's; legacy = the previous mix)")
-    ap.add_argument("--m3-growth", choices=["on", "off"], default=None,
-                    help="on: a growth step can add a 3-fence cell (default: fence.builder's; off = the previous "
-                         "behaviour, in which every path of 3 or more fences crossed itself and was discarded)")
     ap.add_argument("--focus", type=int, default=0,
                     help="search only the k n of --n-range closest to their records (grid records and ties "
                          "left out; 0 = all of --n-range)")
@@ -494,9 +556,14 @@ def main(argv=None):
         args.job_timeout = min(args.job_timeout, 60.0)
     args.budget = args.budget or "6h"
     args.n_range = args.n_range or "12-50"
-    if not args.cpu_procs:
-        args.cpu_procs = max(2, ((os.cpu_count() or 8) - 4) // max(1, args.gpus))
+    args.cpu_procs_auto = not args.cpu_procs
+    if args.cpu_procs_auto:
+        args.cpu_procs = auto_cpu_procs(args.gpus)
     return Supervisor(args).run()
+
+
+def auto_cpu_procs(gpus: int) -> int:
+    return max(2, ((os.cpu_count() or 8) - 4) // max(1, gpus))
 
 
 if __name__ == "__main__":

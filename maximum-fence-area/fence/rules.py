@@ -478,6 +478,15 @@ class Ledger:
         return {"seen": self.seen, "accepted": self.accepted,
                 "rejected": dict(self.counts), "samples": self.samples}
 
+    @staticmethod
+    def from_json(d: dict) -> "Ledger":
+        led = Ledger()
+        led.accepted = int(d.get("accepted", 0))
+        led.counts.update(d.get("rejected", {}))
+        led.errors = int(led.counts.get("build_error", 0))
+        led.samples = {k: list(v) for k, v in d.get("samples", {}).items()}
+        return led
+
     def table(self) -> str:
         if not self.counts:
             return f"accepted {self.accepted}/{self.seen}, nothing rejected"
@@ -493,7 +502,7 @@ class RuleSet:
     """The enabled hard rules, applied in the order they are numbered."""
 
     def __init__(self, enabled: set[str] | None = None, ctx: dict | None = None):
-        self.enabled = set(RULES) if enabled is None else set(enabled)
+        self.enabled = default_rules() if enabled is None else set(enabled)
         unknown = self.enabled - set(RULES)
         if unknown:
             raise ValueError(f"unknown rules: {sorted(unknown)}")
@@ -511,7 +520,7 @@ class RuleSet:
         unknown = (set(off or []) | set(only or [])) - set(RULES)
         if unknown:
             raise ValueError(f"unknown rules: {sorted(unknown)} (known: {sorted(RULES)})")
-        base = set(RULES) if not only else set(only)
+        base = default_rules() if not only else set(only)
         return RuleSet(base - set(off or []), ctx)
 
     def disabled(self) -> list[str]:
@@ -547,6 +556,10 @@ class RuleSet:
         return out
 
 
+def default_rules() -> set[str]:
+    return {k for k, r in RULES.items() if r.default}
+
+
 def min_faces_for(area: float | None) -> int | None:
     """Rule 14's bound: matching total area A needs at least ceil(A) faces of area <= 1."""
     if area is None:
@@ -563,5 +576,7 @@ def describe_rules() -> str:
             tag.append("needs geometry")
         if r.needs_exact:
             tag.append("needs unit lengths")
+        if not r.default:
+            tag.append("off by default")
         lines.append(f"{r.number:>2}. {r.id:<14} {r.summary}" + (f"  [{', '.join(tag)}]" if tag else ""))
     return "\n".join(lines)
