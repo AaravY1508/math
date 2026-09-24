@@ -127,3 +127,16 @@ def test_import_run_records_and_seed_lineages(tmp_path):
     assert sorted(s["records"]) == [3, 12]
     assert lib.trivial_proposers(12) == {E.proposer_id(seed0)} == {E.Program.from_genome(E.seed_genomes(12)[0]).proposer}
     assert lib.trivial_proposers(3) == set()                     # not grid-trivial
+
+
+def test_a_lineage_less_record_is_seeded_once_indexed_as_digitized(tmp_path):
+    # a record written without a proposer (as the 2026-09-24 digitized ones were) is invisible to
+    # best(), which seeds later runs; indexing it under the digitized lineage makes it the first seed
+    cfg, topo, X = verified(C.GRID_2x3, 17)
+    lib = M.MinimaLibrary(tmp_path)
+    lib.update_record(17, cfg, {"via": "digitized"})
+    assert lib.best(17, 3) == []
+    form = M.canonical_form(topo)
+    lib.add_minimum(M.DIGITIZED_PROPOSER, 17, cfg, form.signature, X[form.orders[0]], {"via": "digitized"})
+    top = lib.best(17, 3)
+    assert top[0]["name"] == "record:N17" and top[0]["proposer"] == M.DIGITIZED_PROPOSER

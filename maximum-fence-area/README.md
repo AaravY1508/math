@@ -36,7 +36,9 @@ fence/rules.py      the 14 hard rules, each a separately toggleable check, plus 
 fence/heuristics.py the 8 ranking heuristics, each separately toggleable and weighted
 fence/nets.py       Net stage: the counting envelope, the net generators, filter and rank
 fence/netevolve.py  Geometry stage: population over one net's continuous parameters + local topology moves
+fence/digitize.py   record picture (<n>.gif from the page) -> skeleton -> planar graph -> unit fences -> Topology
 pipeline.py         driver for the two stages: net enumeration -> per-net evolutionary search
+digitize_records.py read the page's record pictures, optimize each read, referee, write the library
 tests/              validation gate (must pass before any search starts)
 baselines.json      best-known areas scraped from the page
 run_overnight.py    supervisor: preflight tests, GPU sharding, restarts, checkpoints, final report
@@ -84,7 +86,15 @@ tail -f runs/launch.log
 # minima library: seed it from a run made before it existed, and inspect it
 ./venv/bin/python -m fence.minima import-run runs/<timestamp>
 ./venv/bin/python -m fence.minima summary
+
+# read the page's record pictures (<n>.gif) into topologies and optimize them, one GPU per process;
+# --v2 is the wider grid that also read n = 44, 46, 49 (EXPERIMENTS.md change 11)
+CUDA_VISIBLE_DEVICES=0 OMP_NUM_THREADS=1 ./venv/bin/python digitize_records.py --fetch --ns 17,24,50 \
+    --out runs/digitize-<ts>
 ```
+
+Pool workers inherit the parent's thread settings: without `OMP_NUM_THREADS=1` five processes with
+eight polish workers each put serrano at load 146 on 48 cores with every GPU idle (2026-09-24).
 
 Main `run_overnight.py` flags:
 
@@ -141,8 +151,9 @@ Two different things are called enumeration here, and the distinction matters:
 - the net **generators are constructive, not exhaustive**. They build concrete nets from
   minimum-perimeter polyomino clusters, clusters plus an appendage, clusters with
   boundary T-junction edits, nets driven up to rule 14's face bound by dissolving
-  corners, the search's own seed families, and the topologies already in `minima/`.
-  Enumerating all planar embeddings is out of reach well before n = 12, so no
+  corners, the search's own seed families, and the topologies already in `minima/`
+  (plus `onion`, a core polygon inside rings of cells -- off by default, it failed its
+  A/B, EXPERIMENTS.md change 13). Enumerating all planar embeddings is out of reach well before n = 12, so no
   completeness is claimed. `coverage()` reports which parts of the envelope the
   constructed nets actually reached.
 
@@ -249,19 +260,26 @@ Kept in `EXPERIMENTS.md` so they are not re-run; the code is gone (git ref
 
 Still switchable, off by default and not yet proven either way: `--remove-edit-fix` (6, looked like
 noise around a real effect), `--target-faces` (7, resolved 2 of 11 face-short n, exploratory),
-`--drop-exhausted`, `--trivial-block ties` (not A/B'd).
+`--drop-exhausted`, `--trivial-block ties` (not A/B'd). Off after failing its own bar (2026-09-24):
+the `onion` net generator (13: legal nets at 90% of n with the records' (F, T, joints), but stage 2
+fills them 5-15% below the library).
 
-## Status (2026-09-23)
+## Status (2026-09-24)
 
-- Library records exist for every n = 3..50, each verified by the referee at 1e-9 and 1e-12.
-- Ties with the page: n = 3-7, 12, 16. No n beats its record.
-- Shortfall against the page scraped 2026-09-21: **4.939** over n = 12..50, **0.489** over n = 3..11
-  (after the 2026-09-21 night run, which raised 13 records).
-- Open problem: the face-short n (22, 27, 29, 33, 36, 38, 41, 45, 47, 50, ...) sit on a saturated
-  grid answer. Layouts with the extra face the record needs are found and indexed, but fill
-  0.2-0.8 below the grid answer.
+- Library records exist for every n = 3..50, each verified by the referee at 1e-9 and 1e-12; the
+  2026-09-24 ones are indexed under the `digitized` lineage so `MinimaLibrary.best()` seeds from them.
+- Ties with the page (at its printed precision): n = 3-7, 10-14, 16-18, 36, 37. No n beats its record.
+- Shortfall against the page (re-scraped 2026-09-24, unchanged since 2026-09-21): **0.151** over
+  n = 12..50 (4.939 before the 2026-09-24 run), **0.000** over n = 3..11 (was 0.489).
+- What closed it: the page's own record pictures, read into topologies by `fence/digitize.py`
+  (`digitize_records.py`) and optimized, then move-neighbourhood search around those topologies
+  (EXPERIMENTS.md changes 11, 12). The records are rounded ring/onion layouts none of the seed
+  families builds; a regular parametric onion family did not reproduce them (change 13).
+- Open problem: the remaining gaps (largest 35 and 44 at 0.035, then 41 at 0.014) sit on a digitized topology the optimizer has
+  already filled -- 4x restarts and 3x steps change nothing (change 14) -- so each is a local misread
+  (a joint that should be a T, a fence on the wrong edge) or a genuinely different record topology.
 - Throughput: `pipeline.py` keeps a GPU only 21-28% busy (synchronous polish); `run_overnight.py`
-  89-100%.
+  89-100%. Launch every GPU job with `OMP_NUM_THREADS=1` (see Running).
 
 ## How it works
 

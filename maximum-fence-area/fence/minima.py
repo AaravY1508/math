@@ -59,6 +59,7 @@ MINIMUM_EPS = 1e-6       # same topology and |area difference| <= this: the same
 LOCK_STALE_S = 120.0     # a lock older than this was left by a dead writer and may be taken over
 LOCK_POLL_S = 0.02
 PIPELINE_PROPOSER = "pipeline"   # lineage id of configurations found by pipeline.py (no seed program)
+DIGITIZED_PROPOSER = "digitized"  # lineage id of layouts read from the page's record pictures (no seed program)
 
 
 # ---------------------------------------------------------------------------

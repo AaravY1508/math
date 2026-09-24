@@ -377,6 +377,102 @@ def _gen_builder_seeds(n: int, rng, ctx: dict):
             yield sk, fam, f"seed:{k} {kind}"
 
 
+def onion_sketch(core: int, rings, rot: float = 0.0, outer_pin: bool = False) -> Bd.Sketch:
+    """Core `core`-gon (unit sides) inside concentric rings of cells (EXPERIMENTS.md change 13).
+
+    `rings` is a list of (s, m): the ring's outer boundary is a regular s-gon of unit chords --
+    the outermost one is the rounded boundary -- and m spokes run inward from m of its vertices
+    (spread evenly) to the polygon inside, landing on a vertex (a joint) when the ray from the
+    centre passes near one and pinned as a T-junction on that polygon's fence otherwise. Each ring
+    is m cells; n = core + sum(s + m), F = 1 + sum(m). With `outer_pin` a spoke's outer end is a
+    T-junction at the middle of an outer fence instead of a joint at a vertex, as in most of the
+    page's pictures."""
+    R0 = 1.0 / (2 * math.sin(math.pi / core))
+    P = [[R0 * math.cos(rot + 2 * math.pi * i / core), R0 * math.sin(rot + 2 * math.pi * i / core)]
+         for i in range(core)]
+    sk = Bd.Sketch(P, [[i, (i + 1) % core] for i in range(core)], {})
+    inner = list(range(core))                       # polygon vertex ids, CCW
+    inner_f = list(range(core))                     # fence of edge inner[i] -> inner[i+1]
+    for j, (sj, mj) in enumerate(rings):
+        Rj = 1.0 / (2 * math.sin(math.pi / sj))
+        off = rot + (math.pi / sj if j % 2 == 0 else 0.0)
+        base = len(sk.P)
+        for i in range(sj):
+            sk.add_vertex(Rj * math.cos(off + 2 * math.pi * i / sj), Rj * math.sin(off + 2 * math.pi * i / sj))
+        outer = list(range(base, base + sj))
+        outer_f = [sk.add_fence(outer[i], outer[(i + 1) % sj]) for i in range(sj)]
+        X = sk.coords()
+        used_t = {}
+        for q in range(mj):
+            e = int(round(q * sj / mj)) % sj
+            o = sk.add_pin(outer_f[e], 0.5) if outer_pin else outer[e]
+            X = sk.coords()
+            d = X[o] / np.linalg.norm(X[o])
+            # the inner-polygon edge the ray from the centre towards o crosses
+            hit = None
+            for i in range(len(inner)):
+                a, b = X[inner[i]], X[inner[(i + 1) % len(inner)]]
+                M = np.array([d, a - b]).T
+                if abs(np.linalg.det(M)) < 1e-12:
+                    continue
+                lam, t = np.linalg.solve(M, a)
+                if lam > 0 and -1e-9 <= t <= 1 + 1e-9:
+                    hit = (i, float(t))
+                    break
+            if hit is None:
+                raise Bd.BuildError("onion: spoke ray misses the inner polygon")
+            i, t = hit
+            if t < 0.2 or t > 0.8:
+                v = inner[i] if t < 0.2 else inner[(i + 1) % len(inner)]
+            else:
+                f = inner_f[i]
+                a, b = sk.fences[f]
+                ta = t if a == inner[i] else 1 - t
+                if any(abs(ta - u) < 0.1 for u in used_t.get(f, [])):
+                    raise Bd.BuildError("onion: two spokes pinned at the same place")
+                used_t.setdefault(f, []).append(ta)
+                v = sk.add_pin(f, ta)
+            sk.add_fence(o, v)
+        inner, inner_f = outer, outer_f
+    return sk
+
+
+def onion_specs(n: int, cores=(3, 4, 5, 6), max_rings: int = 3, limit: int = 60):
+    """(core, [(s, m), ...]) with core + sum(s + m) == n: each ring's s-gon about one unit outside
+    the polygon it surrounds (s within 2 of 2*pi*(R_inside + 1)), m >= s/3 spokes. Most faces first."""
+    out = []
+
+    def rec(core, rings, R_in, used):
+        if used == n and rings:
+            out.append((core, list(rings)))
+            return
+        if len(rings) == max_rings or used >= n:
+            return
+        s_nat = 2 * math.pi * (R_in + 1)
+        for s in range(max(3, round(s_nat) - 2), round(s_nat) + 3):
+            for m in range(max(3, math.ceil(s / 3)), s + 1):
+                if used + s + m > n:
+                    break
+                rec(core, rings + [(s, m)], 1.0 / (2 * math.sin(math.pi / s)), used + s + m)
+    for c in cores:
+        rec(c, [], 1.0 / (2 * math.sin(math.pi / c)), c)
+    out.sort(key=lambda cr: -sum(m for _, m in cr[1]))
+    return out[:limit]
+
+
+@generator("onion", "a core polygon inside rings of cells with a rounded outer boundary (the page's "
+           "September record shape); off until it earns its place", default=False)
+def _gen_onion(n: int, rng, ctx: dict):
+    for core, rings in onion_specs(n, limit=ctx.get("onion_specs", 60)):
+        for rot, pin in ((0.0, False), (math.pi / core, False), (0.0, True), (math.pi / core, True)):
+            try:
+                sk = onion_sketch(core, rings, rot, pin)
+                sk.topology()
+            except (Bd.BuildError, G.InvalidTopology):
+                continue
+            yield sk, "onion", f"core {core} rings {rings} rot {rot:.2f}{' outer-T' if pin else ''}"
+
+
 @generator("library", "topologies the search already found, from the minima library")
 def _gen_library(n: int, rng, ctx: dict):
     lib = ctx.get("library")

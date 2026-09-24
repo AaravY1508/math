@@ -1022,3 +1022,308 @@ What the night says:
   89-100%. Asynchronous polish in `netevolve` (deferred today) is the pipeline's largest throughput lever.
 - 3750 build errors across the explore shards; the ledger's sample is `symmetrize` leaving a zero-length
   edge, but which moves account for the count is not logged (stage 2 keeps move stats in memory only).
+
+## Day 6 (2026-09-24) -- 4 h run: chase the record shapes (`PROMPT-4h-record-shapes.md`)
+
+Clock: the run's first start (04:51 PDT) was lost -- the session sat 4 h 07 min on the dirty-tree
+question before any work began. The watchdog was restarted at 08:59 PDT when work could begin
+(3:45 stop at 12:44, 4 h at 12:59). Snapshot ref `refs/backup/pre-4h-run-2026-09-24` (tracked
+changes only; the untracked test files stay on disk). `pytest -q` green before any change.
+Baselines re-scraped once at 08:59 PDT (15:59 UTC): **no record moved since 2026-09-21**; the gap is
+still 4.93865 over n = 12..50 and 0.48865 over 3..11. GPUs: serrano 0-4 (CUDA probe OK); temescal's
+GPU 1 fell off the bus again and cuInit fails on all its devices; ynez is another user's (~9 GB per GPU).
+
+### 11. Digitize the page's record pictures (`fence/digitize.py`) -- pre-registered
+
+Hypothesis: the September records at grid-tied n are not grids but rounded ring/onion layouts our
+seed families never build; loading the record's own topology from its picture and optimizing it
+reaches the record.
+
+Method: `<n>.gif` -> threshold -> Zhang-Suen skeleton -> planar graph (crossing-number junctions,
+Douglas-Peucker corners, stubs < `min_edge` fence lengths contracted) -> lines of straight edges ->
+each line cut by a small DP into pieces of near-integer length (a whole number of unit fences) ->
+`make_topology`. Each picture is read with a grid of 20 parameter settings; every distinct legal
+topology gets `optimize_topology` (batch 2048, 1000 steps, 2 seeds) on a serrano GPU, then the
+referee at 1e-9 and 1e-12. A verified result above the library goes in with `update_record`, meta
+`{"via": "digitized", "run": "4h-20260924"}`.
+
+Pre-registered PASS: at least 3 of n = 17, 24, 41, 50 give a referee-verified layout within 0.01
+of the page's figure. Fewer than 3 in the time box is a FAIL, and the entry says which failure
+it is -- bad digitization (no legal topology with the record's face count) or optimizer shortfall
+(the right topology, not filled).
+
+### 12. Move-neighbourhood search around record-shaped topologies -- pre-registered
+
+Hypothesis: a topology one or two moves from a record (or from a digitized near-record) is more
+likely to beat it than anything a generic search finds cold.
+
+Method (`runs/4h-20260924/neighbours.py`): from a seed configuration, apply each of netevolve's seven
+topology moves (`join_to_t`, `t_to_join`, `slide_t_past`, `repin`, `add_face`, `remove_face`,
+`face_fill`) under 40 rng seeds each; the moves are randomized, so this sampling, deduplicated by
+canonical signature, is how their applications are enumerated. Every distinct neighbour that passes
+the default hard rules (with rule 14's `min_faces` from today's page) is screened (batch 1024, 600
+steps, referee). Level 2 applies the moves again to the best 6 level-1 neighbours (every pair from
+the whole first set does not fit the time box -- a documented deviation from the brief). The top 3
+get full settings (batch 2048, 1000 steps, 2 seeds). Seeds: the Phase 1 digitized bests that sit
+below their record, and the library records of the non-grid highest-gap n where no digitization
+succeeded. One GPU per n, 25 min per n.
+
+Pre-registered: no success bar. The result is, per n, whether any referee-verified candidate beats
+(a) the page's record and (b) the library record, and by how much -- "no improvement found" is a
+result, not a reason to extend the box.
+
+### 13. Ring/onion net generator (`--generators ...,onion`) -- pre-registered, off by default
+
+Hypothesis: the page's September shape -- a core polygon inside concentric rings of cells with a
+rounded boundary -- is a parametric family, and building it directly gives stage 2 record-shaped
+nets at any n, without a picture.
+
+Generator `onion` (`fence/nets.py`, `default=False`): a core c-gon (c = 3..6), then 1-3 rings; ring
+j's outer boundary is a regular s_j-gon of unit chords about one unit outside the polygon inside it,
+with m_j >= s_j/3 spokes running inward; a spoke's outer end is a vertex joint or (variant) a
+T-junction mid-fence, its inner end a joint near a vertex and a T-junction otherwise. n = c +
+sum(s_j + m_j), F = 1 + sum(m_j); every (c, rings) that hits n exactly, most faces first, 60 specs x 4
+variants per n.
+
+Pre-registered PASS requires both: (i) a net passing every default hard rule (rule 14 against
+today's page) for >= 80% of n in 12..50; (ii) `pipeline.py --generators onion --nets-per-n 4
+--evals-per-net 20 --no-library --library-writes off` reaches within 5% of the library record as it
+stood at launch (after Phase 1) at each of n = 17, 24, 33, 41, 50. Structural check, reported but not
+part of the bar: for 17, 24, 41, 50, does the family contain a net with the digitized record's
+(F, T, joints)? On a FAIL the generator stays in the tree, off, with these numbers.
+
+Already measured before the stage-2 arm (generation only, no optimizer): (i) **35 of 39 n (90%)**
+-- none at n = 12, 13 (too small for a core and a ring), rule 14 rejects all at 14, 15. Structural
+check: the closest onion net has (F, T, joints) = (7, 11, 11) vs the digitized record's (7, 12, 11) at
+17, identical (10, 14, 15) at 24, (17, 25, 25) vs (17, 24, 25) at 41, identical (21, 34, 30) at 50 --
+with outer-T spokes; with vertex spokes only, T was 2-3x too low.
+
+**Result of 13: FAIL** on (ii) at all five n (arms 09:27-09:40 PDT, serrano GPUs 1, 3, 4, `runs/4h-20260924/onion-n*`):
+
+| n | library at launch (after Phase 1) | onion arm, best verified | vs library | distinct onion nets |
+|---|---|---|---|---|
+| 17 | 6.01087 | 5.13452 | -14.6% | 2 |
+| 24 | 9.02159 | 8.54861 | -5.2% | 10 |
+| 33 | 13.01867 | 11.16437 | -14.2% | 4 |
+| 41 | 16.43200 | 15.22380 | -7.4% | 30 |
+| 50 | 20.55748 | 18.83024 | -8.4% | 106 |
+
+(i) passed (35 of 39 n); the structural check passed (the family contains nets with the records'
+(F, T, joints)); (ii) failed everywhere -- n = 24 came closest, 0.2 points outside the bar. Matching
+the counts is not matching the net: the digitized record topologies optimize straight to within
+0.01 of the page (change 11), while the family's nets with the same F, T and joint count fill 5-15%
+lower, so what matters is which spoke lands on which fence, and where -- the detail the regular
+construction does not get right. As pre-registered, `onion` stays in the tree **off by default**
+(`--generators ...,onion` turns it on). A family worth retrying would be fitted to the digitized
+records' spoke placement rather than spreading spokes evenly.
+
+**Result of 11: PASS** (08:59-09:50 PDT, serrano GPUs 0-4; `runs/4h-20260924/`). At the time the
+criterion was scored: n = 17 **6.0108687** (page 6.01086+, a tie at the page's precision), n = 24
+**9.0215924** (-0.00235), n = 50 **20.5574787** (-0.00081) -- three of four within 0.01, every one
+referee-valid at 1e-9 and at 1e-12. n = 41 is the miss: its picture never read cleanly (a bend 0.25
+fence lengths above a 4-way crossing), so its graph was patched by hand at that one spot (the
+brief's fallback) and the result, 16.43200, is 0.0164 short -- a local topology misread or an
+optimizer shortfall, not separable in the time box (Phase 2 took it to 16.43382, still 0.0146 short).
+
+What the digitizer needed, in the order the pictures demanded it (all in `fence/digitize.py`):
+crossing-number junctions with the 3x3 neighbourhood cut out (a pixel-count test marks every
+diagonal staircase pixel as a junction); one point per BFS level before Douglas-Peucker (sorted
+pixels zig-zag); stubs contracted at 0.1-0.15 fence lengths (n = 17's record carries a pinwheel
+triangle with sides ~0.2 -- at 0.15 it disappears and the read has 6 faces, which cannot exceed 6.0);
+a DP that cuts each straight line into near-integer pieces instead of cutting at every bend (pixel
+noise bends 3-5 degrees); forced cuts where two lines would pass through one node (fences never
+cross); noise-bend nodes dropped instead of pinned. That read 38 of the 41 pictures tried (n = 8..50
+where the library was short). v2 (after n = 44, 46, 49 failed): a per-fence price in the DP searched
+until the count is exactly n; unconnected nodes merged; a skeleton T pulled towards its stem put
+back on its through-line; and a ring-branch junction test -- Zhang-Suen leaves two-pixel blobs at
+some junctions that hide them from the crossing number (n = 46 read 18 faces for a record that needs
+19 until this). v2 read all three.
+
+| n | library before | digitized v1 | v2 | page | best digitized vs page | F |
+|---|---|---|---|---|---|---|
+| 8 | 2.03396 | 2.10306 |  | 2.10306 | -0.00000 | 3 |
+| 9 | 2.61097 | 2.63629 |  | 2.63630 | -0.00001 | 3 |
+| 10 | 2.72698 | 3.04687 |  | 3.04687 | +0.00000 | 4 |
+| 11 | 3.46288 | 3.53722 |  | 3.53721 | +0.00001 | 4 |
+| 13 | 4.10184 | 4.16199 |  | 4.16199 | +0.00000 | 5 |
+| 14 | 4.73264 | 4.74494 |  | 4.74494 | +0.00000 | 5 |
+| 15 | 5.00680 | 5.06175 |  | 5.06345 | -0.00170 | 6 |
+| 17 | 6.00000 | 6.01087 |  | 6.01086 | +0.00001 | 7 |
+| 18 | 6.21109 | 6.24792 |  | 6.24791 | +0.00001 | 7 |
+| 19 | 6.87088 | 6.86085 |  | 6.87498 | -0.01413 | 7 |
+| 20 | 7.03935 | 7.12479 | 7.12479 | 7.14732 | -0.02253 | 8 |
+| 21 | 7.72265 | 7.72127 |  | 7.72489 | -0.00362 | 8 |
+| 22 | 8.00000 | 8.07101 |  | 8.07384 | -0.00283 | 9 |
+| 23 | 8.49774 | 8.52784 | 8.52784 | 8.53463 | -0.00679 | 9 |
+| 24 | 9.00000 | 9.02159 |  | 9.02394 | -0.00235 | 10 |
+| 25 | 9.18668 | 9.29876 |  | 9.30077 | -0.00201 | 10 |
+| 26 | 9.88968 | 9.82517 |  | 9.89324 | -0.06807 | 10 |
+| 27 | 10.00000 | 10.14176 | 10.14476 | 10.16136 | -0.01660 | 11 |
+| 28 | 10.69154 | 10.72129 | 10.72129 | 10.73270 | -0.01141 | 11 |
+| 29 | 11.00000 | 11.07503 | 11.07630 | 11.08218 | -0.00588 | 12 |
+| 30 | 11.47735 | 11.49534 | 11.49534 | 11.53492 | -0.03958 | 12 |
+| 31 | 12.00000 | 12.03423 |  | 12.03575 | -0.00152 | 13 |
+| 32 | 12.03916 | 12.42961 |  | 12.43064 | -0.00103 | 13 |
+| 33 | 12.79735 | 13.01867 |  | 13.01887 | -0.00020 | 14 |
+| 34 | 13.17973 | 13.28159 | 13.28159 | 13.28913 | -0.00754 | 14 |
+| 35 | 13.80858 | 13.83892 | 13.83892 | 13.90296 | -0.06404 | 14 |
+| 36 | 14.00000 | 14.18128 |  | 14.18217 | -0.00089 | 15 |
+| 37 | 14.68952 | 14.74906 | 14.76530 | 14.76529 | +0.00001 | 15 |
+| 38 | 15.00000 | 15.07965 |  | 15.08152 | -0.00187 | 16 |
+| 39 | 15.32119 | 15.47781 | 15.47781 | 15.53725 | -0.05944 | 16 |
+| 40 | 16.00000 | 16.03664 | 16.03664 | 16.04172 | -0.00508 | 17 |
+| 41 (hand-patched) | 16.00000 | 16.43200 | 16.43376 | 16.44841 | -0.01465 | 17 |
+| 42 | 16.86606 | 17.01970 |  | 17.02275 | -0.00305 | 18 |
+| 43 | 17.17038 | 17.32798 | 17.32798 | 17.34095 | -0.01297 | 18 |
+| 44 | 17.67467 | no legal read; 17.82217 with the fence price (λ) | 16.99950 | 17.91952 | -0.09735 | 18 |
+| 45 | 18.00000 | 18.17878 |  | 18.17998 | -0.00120 | 19 |
+| 46 | 18.49536 | no legal read | 18.80409 | 18.82057 | -0.01648 | 19 |
+| 47 | 19.00000 | 19.14890 |  | 19.15056 | -0.00166 | 20 |
+| 48 | 19.45591 | 19.73724 | 19.00000 | 19.75072 | -0.01348 | 20 |
+| 49 | 20.00000 | no legal read | 20.06049 | 20.07383 | -0.01334 | 21 |
+| 50 | 20.00000 | 20.55748 |  | 20.55829 | -0.00081 | 21 |
+
+Every row's best is referee-valid at 1e-9 and 1e-12 and went into the library via
+`update_record` when larger (meta `via: digitized` / `digitized-v2`). Where the digitized layout
+is below the library (19, 21, 26) the library kept its own; those reads are wrong somewhere, not the
+record's topology (26 is 0.068 short). Two seeds on one read agreed to 1e-9 wherever both ran, so
+the optimizer is repeatable on a read: a shortfall points at the read (or at a basin both seeds
+share), not at seed luck.
+
+### 14. Optimizer effort on near-record topologies -- pre-registered
+
+Hypothesis: where the library now sits < 0.002 below the page on a digitized (or neighbourhood)
+topology, the rest is optimizer shortfall on the right topology, which more restarts and steps close.
+Arms: the library record's own topology and geometry as the sketch, `optimize_topology` with batch
+8192 (4x), 3000 Adam steps (3x), topk 16, 3 seeds, vs the library value it started from. n = 8, 9,
+22, 24, 25, 31, 32, 33, 38, 45, 47, 50 (every n with 0 < gap < 0.0025 at launch, 10:08 PDT).
+PASS: at least 3 of the 12 reach a tie with the page at its 5 printed decimals. Every result is
+referee-checked at 1e-9 and 1e-12; a larger one goes in with `update_record` (`via: heavy-opt`).
+
+**Result of 14: FAIL, 0 of 12** (10:08-10:22 PDT, serrano GPUs 3-4, `runs/4h-20260924/heavy-*`). Every
+arm returned its starting area to within 1e-14 -- n = 8 2.1030583, 9 2.6362898, 22 8.0734532, 24
+9.0228529, 25 9.2987613, 31 12.0342277, 32 12.4296086, 33 13.0187327, 38 15.0796486, 45
+18.1787789, 47 19.1488965, 50 20.5577469 -- all referee-valid at 1e-9 and 1e-12, none changed the
+library. Four times the restarts and three times the steps land in the same optimum from three seeds:
+the gaps of 1e-6 to 2e-3 that remain are topological (a joint that should be a T, a fence end on the
+wrong edge), not optimizer shortfall. Useful for what it rules out: more optimizer effort on these n
+is wasted; neighbourhood moves (change 12) are what moved them.
+
+**Result of 12** (09:21-11:50 PDT, serrano; `runs/4h-20260924/nb-n*.jsonl`, `results/nb-*`). The
+pre-registered first round (seeds: the digitized 41 and 50; the old library records of 44 and 46,
+where digitization had failed at launch): 41 +0.00182 (16.43382), 50 +0.00027 (20.55775); 44 and 46
+gained +0.00293 / +0.00338 over their old seeds, but digitization v2 had meanwhile put both
+libraries far above those seeds, so neither wrote anything. **No arm beat the page anywhere.**
+
+Added after the first round, as the GPUs freed (not part of the pre-registration, same script and
+settings, 15 min per n, each seeded from the library as it stood when the arm started, i.e. from
+the previous round's best -- an iterated local search): rounds r2-r5 over every n still below the
+page. Every row below is referee-valid at 1e-9 and 1e-12; "written" means `update_record` took it.
+
+| n | round | seed (library) | level-1 neighbours | evaluated | best verified | vs seed | vs page | move | written |
+|---|---|---|---|---|---|---|---|---|---|
+| 15 | r2 | 5.06175 | 27 | 88 | 5.06175 | +0.00000 | -0.00170 | remove_face | yes |
+| 19 | r3 | 6.87137 | 36 | 155 | 6.87154 | +0.00018 | -0.00344 | join_to_t | yes |
+| 20 | r2 | 7.12479 | 39 | 156 | 7.14422 | +0.01943 | -0.00310 | join_to_t+remove_face | yes |
+| 20 | r5 | 7.14422 | 45 | 146 | 7.14422 | -0.00000 | -0.00310 | remove_face | no |
+| 21 | r3 | 7.72265 | 45 | 175 | 7.72264 | -0.00002 | -0.00225 | join_to_t | no |
+| 23 | r3 | 8.52784 | 54 | 192 | 8.52987 | +0.00204 | -0.00476 | join_to_t+join_to_t | yes |
+| 23 | r5 | 8.52987 | 49 | 192 | 8.53437 | +0.00450 | -0.00026 | remove_face+remove_face | yes |
+| 24 | r2 | 9.02285 | 39 | 149 | 9.02388 | +0.00103 | -0.00006 | remove_face+remove_face | yes |
+| 24 | r5 | 9.02388 | 38 | 151 | 9.02388 | -0.00000 | -0.00006 | join_to_t | no |
+| 25 | r2 | 9.29876 | 51 | 216 | 9.30022 | +0.00146 | -0.00055 | remove_face+remove_face | yes |
+| 26 | r3 | 9.88968 | 56 | 218 | 9.88967 | -0.00001 | -0.00357 | join_to_t | no |
+| 27 | r2 | 10.14476 | 53 | 186 | 10.15292 | +0.00816 | -0.00844 | remove_face | yes |
+| 27 | r4 | 10.15292 | 52 | 197 | 10.15654 | +0.00361 | -0.00482 | remove_face+remove_face | yes |
+| 27 | r6 | 10.15654 | 39 | 171 | 10.15640 | -0.00014 | -0.00496 | join_to_t | no |
+| 28 | r2 | 10.72129 | 52 | 226 | 10.72363 | +0.00234 | -0.00907 | remove_face | yes |
+| 28 | r5 | 10.72363 | 59 | 223 | 10.72361 | -0.00002 | -0.00909 | join_to_t | no |
+| 29 | r3 | 11.07630 | 54 | 210 | 11.08040 | +0.00410 | -0.00178 | remove_face+join_to_t | yes |
+| 29 | r5 | 11.08040 | 49 | 204 | 11.08114 | +0.00074 | -0.00104 | remove_face | yes |
+| 30 | r2 | 11.49534 | 64 | 229 | 11.53279 | +0.03745 | -0.00213 | remove_face+remove_face | yes |
+| 30 | r5 | 11.53279 | 61 | 238 | 11.53425 | +0.00146 | -0.00067 | remove_face+remove_face | yes |
+| 32 | r2 | 12.42961 | 62 | 225 | 12.42963 | +0.00002 | -0.00101 | join_to_t+remove_face | yes |
+| 33 | r2 | 13.01867 | 56 | 214 | 13.01873 | +0.00007 | -0.00014 | remove_face+join_to_t | yes |
+| 34 | r3 | 13.28159 | 71 | 183 | 13.28911 | +0.00752 | -0.00002 | remove_face+remove_face | yes |
+| 35 | r2 | 13.83892 | 67 | 256 | 13.85895 | +0.02002 | -0.04401 | join_to_t+remove_face | yes |
+| 35 | r3 | 13.85895 | 76 | 229 | 13.85918 | +0.00023 | -0.04378 | remove_face+join_to_t | yes |
+| 35 | r5 | 13.85918 | 64 | 223 | 13.86803 | +0.00886 | -0.03493 | join_to_t+remove_face | yes |
+| 36 | r2 | 14.18128 | 67 | 261 | 14.18218 | +0.00090 | +0.00001 | join_to_t+remove_face | yes |
+| 38 | r2 | 15.07965 | 51 | 185 | 15.07962 | -0.00002 | -0.00190 | remove_face | no |
+| 39 | r2 | 15.47781 | 79 | 193 | 15.51077 | +0.03296 | -0.02648 | remove_face+remove_face | yes |
+| 39 | r4 | 15.51077 | 77 | 222 | 15.52419 | +0.01342 | -0.01306 | join_to_t+join_to_t | yes |
+| 39 | r5 | 15.52419 | 66 | 212 | 15.53201 | +0.00782 | -0.00524 | join_to_t+remove_face | yes |
+| 40 | r3 | 16.03664 | 74 | 160 | 16.03899 | +0.00235 | -0.00273 | remove_face+remove_face | yes |
+| 40 | r5 | 16.03899 | 71 | 182 | 16.03931 | +0.00032 | -0.00241 | remove_face+remove_face | yes |
+| 41 | lib | 16.43200 | 72 | 309 | 16.43382 | +0.00182 | -0.01459 | remove_face+remove_face | yes |
+| 41 | r3 | 16.43382 | 72 | 149 | 16.43484 | +0.00103 | -0.01357 | remove_face+slide_t_past | yes |
+| 41 | r4 | 16.43484 | 73 | 129 | 16.43468 | -0.00016 | -0.01373 | remove_face+t_to_join | no |
+| 41 | r5 | 16.43484 | 81 | 145 | 16.43488 | +0.00004 | -0.01353 | join_to_t | yes |
+| 42 | r3 | 17.01970 | 69 | 160 | 17.02099 | +0.00130 | -0.00176 | join_to_t+join_to_t | yes |
+| 43 | r2 | 17.32798 | 69 | 111 | 17.33372 | +0.00574 | -0.00723 | remove_face+remove_face | yes |
+| 43 | r5 | 17.33372 | 61 | 108 | 17.33370 | -0.00001 | -0.00725 | remove_face | no |
+| 44 | lib | 17.67467 | 89 | 229 | 17.67760 | +0.00293 | -0.24192 | remove_face+t_to_join | no |
+| 44 | r2 | 17.82217 | 93 | 223 | 17.85675 | +0.03458 | -0.06277 | face_fill+join_to_t | yes |
+| 44 | r3 | 17.85675 | 77 | 167 | 17.86767 | +0.01092 | -0.05185 | remove_face+join_to_t | yes |
+| 44 | r4 | 17.86767 | 82 | 147 | 17.87313 | +0.00547 | -0.04639 | remove_face+repin | yes |
+| 44 | r5 | 17.87313 | 77 | 125 | 17.88397 | +0.01084 | -0.03555 | remove_face+join_to_t | yes |
+| 44 | r6 | 17.88397 | 74 | 144 | 17.88471 | +0.00074 | -0.03481 | remove_face+remove_face | yes |
+| 45 | r2 | 18.17878 | 65 | 131 | 18.17878 | -0.00000 | -0.00120 | join_to_t | no |
+| 46 | lib | 18.49536 | 80 | 227 | 18.49873 | +0.00338 | -0.32184 | remove_face | no |
+| 46 | r2 | 18.80409 | 72 | 155 | 18.81581 | +0.01172 | -0.00476 | join_to_t+join_to_t | yes |
+| 46 | r3 | 18.81581 | 65 | 125 | 18.81902 | +0.00321 | -0.00155 | remove_face+join_to_t | yes |
+| 46 | r4 | 18.81902 | 72 | 115 | 18.82035 | +0.00133 | -0.00022 | remove_face | yes |
+| 47 | r2 | 19.14890 | 72 | 154 | 19.15037 | +0.00147 | -0.00019 | join_to_t | yes |
+| 47 | r5 | 19.15037 | 74 | 158 | 19.15042 | +0.00005 | -0.00014 | remove_face | yes |
+| 48 | r2 | 19.73724 | 64 | 114 | 19.74120 | +0.00396 | -0.00952 | remove_face+remove_face | yes |
+| 48 | r4 | 19.74120 | 73 | 99 | 19.74692 | +0.00571 | -0.00380 | remove_face | yes |
+| 49 | r2 | 20.06049 | 69 | 135 | 20.06157 | +0.00108 | -0.01226 | remove_face+remove_face | yes |
+| 49 | r4 | 20.06157 | 81 | 116 | 20.06196 | +0.00039 | -0.01187 | remove_face | yes |
+| 49 | r5 | 20.06196 | 81 | 121 | 20.06322 | +0.00127 | -0.01061 | remove_face | yes |
+| 50 | lib | 20.55748 | 82 | 168 | 20.55775 | +0.00027 | -0.00054 | remove_face | yes |
+| 50 | r4 | 20.55775 | 85 | 87 | 20.55828 | +0.00053 | -0.00001 | remove_face | yes |
+
+Across the 48 written wins, `remove_face` (drop a fence and merge its two faces; `fit_count` then
+puts a fence back elsewhere -- in effect relocating one fence) appears 55 times, often as both moves
+of a pair, and `join_to_t` 24 times; `face_fill`, `repin` and `slide_t_past` once each,
+`t_to_join` never; `add_face` produced no distinct legal neighbour at these n. The moves that pay
+are small and local -- consistent with repairing local misreads of the pictures (a joint that should
+be a T, a fence on the wrong edge), though which win repaired a misread and which found a different
+topology is not separated. Iterating keeps paying where the read was far off (44: +0.035, +0.011,
++0.005, +0.011, +0.001 over five rounds) and stalls within ~1e-4 of the page (20, 24, 43, 45 gained
+nothing in their last round).
+
+## Day 6 result (4 h run of 2026-09-24, 08:59-11:50 PDT of GPU work; `runs/4h-20260924/final-comparison.txt`)
+
+All GPU work stopped at 11:50, 2 h 51 min into the box. Every record the run wrote (39 n) was
+re-verified by the referee at 1e-9 **and** at 1e-12 after the last writer exited, against the page as
+scraped once at 08:59 (unchanged since 2026-09-21). Every one is indexed as a minimum of the new
+`digitized` lineage (`MinimaLibrary.best()` leaves a record with no lineage out, so without this no
+later run would have seeded from any of them).
+
+| | n = 12..50 | n = 3..11 |
+|---|---|---|
+| shortfall at the start of the run | 4.93865 | 0.48865 |
+| **now** | **0.15130** | **0.00000** |
+
+- **39 n improved**; every n in 8..50 except 12 and 16 (already ties), 21 and 26 (their digitized
+  reads came in 0.0014 and 0.0056 below the library, and one neighbourhood round from the library
+  record came within 2e-5 of it, not above). Largest gains:
+  50 +0.55828, 41 +0.43488, 32 +0.39047, 46 +0.32499, 10 +0.31989, 48 +0.29101, 33 +0.22138,
+  39 +0.21082, 44 +0.21004.
+- **Ties with the page at its printed precision: n = 3-7, 10-14, 16-18, 36, 37** (new today: 10, 11,
+  13, 14, 17, 18, 36, 37). **No n beats its record.** Closest below: 8 (1.7e-6), 9 (1.0e-5), 50
+  (1.1e-5), 34 (2e-5), 24 (6e-5), 33 and 47 (1.4e-4), 46 (2.2e-4), 23 (2.6e-4).
+- Largest remaining gaps: 35 (0.0349), 44 (0.0348), 41 (0.0135), 49 (0.0106), 28 (0.0091), 43 (0.0072).
+
+What the day says:
+- The records were the missing ingredient, not the optimizer. Given the record's own topology,
+  `optimize_topology` fills it to the page's figure or within ~1e-3 at most n in one call; on the
+  topology it already has, 4x restarts and 3x steps change nothing (change 14). The 09-21 diagnosis --
+  the stuck n need a different topology with more faces -- was right; the topologies were on the
+  page all along, as pictures.
+- Reading a picture is where the errors are: every remaining gap sits on a digitized topology, and
+  small local moves (change 12) kept repairing them round after round.
+- A regular ring/onion construction with the right counts is not the right net (change 13, failed).
+- Operational: spawned polish workers inherit thread settings -- five processes at 4 BLAS threads
+  each drove serrano to load 146 with every GPU idle until relaunched with `OMP_NUM_THREADS=1`.
