@@ -532,6 +532,107 @@ def remove_fence(sk: Sketch, rng, f=None) -> bool:
     return False
 
 
+def project_pins(sk: Sketch, rounds: int = 80, tol: float = 1e-15, clamp: float | None = None) -> None:
+    """Put every pinned vertex exactly on its host's line, in place. Pins may sit on hosts whose ends
+    are pins themselves (a pinwheel's ends form a cycle), so the projections alternate until nothing
+    moves. The parameter along the host is kept in [clamp, 1 - clamp] when `clamp` is given, else
+    left free (make_topology judges it)."""
+    for _ in range(rounds):
+        X = sk.coords()
+        moved = 0.0
+        for v, h in sk.pins.items():
+            a, b = sk.fences[h]
+            d = X[b] - X[a]
+            dd = float(d @ d)
+            if dd < 1e-18:
+                continue
+            t = float((X[v] - X[a]) @ d) / dd
+            if clamp is not None:
+                t = min(1 - clamp, max(clamp, t))
+            q = X[a] + t * d
+            moved = max(moved, float(np.abs(q - X[v]).max()))
+            X[v] = q
+            sk.P[v] = [float(q[0]), float(q[1])]
+        sk._dirty()
+        if moved < tol:
+            break
+
+
+def pinwheel_at(sk: Sketch, v: int, size: float = 0.05) -> Sketch | None:
+    """The joint v, where k >= 3 fence ends meet, turned into a pinwheel: each of those fences stops
+    just past v on the next one around it (a T-junction), so the k ends enclose a tiny k-gon. No fence
+    is added; v stops being a joint, so the layout gains a face (F = n + 1 - J). Returns the new
+    sketch, or None when v is not such a joint or neither handedness gives a legal layout.
+
+    Geometry: fence i keeps its far end A_i and runs along the line through v + d*rot90(u_i) with
+    direction u_i (u_i = unit vector from v to A_i, ends sorted by angle); its new end is where that
+    line meets fence i+1's shifted line. One sign of d makes every end land inside the next fence."""
+    if v in sk.pins:
+        return None
+    ends = [f for f, (a, b) in enumerate(sk.fences) if v in (a, b)]
+    if len(ends) < 3:
+        return None
+    X = sk.coords()
+    far = {f: (sk.fences[f][1] if sk.fences[f][0] == v else sk.fences[f][0]) for f in ends}
+    U = {f: (X[far[f]] - X[v]) / max(1e-12, np.linalg.norm(X[far[f]] - X[v])) for f in ends}
+    ends.sort(key=lambda f: math.atan2(U[f][1], U[f][0]))
+    k = len(ends)
+    for d in (size, -size):
+        base = {f: X[v] + d * np.array([-U[f][1], U[f][0]]) for f in ends}
+        P = {}
+        ok = True
+        for i, f in enumerate(ends):
+            g = ends[(i + 1) % k]
+            # base_f + s u_f = base_g + r u_g
+            M = np.column_stack([U[f], -U[g]])
+            if abs(np.linalg.det(M)) < 1e-9:
+                ok = False
+                break
+            s_, r_ = np.linalg.solve(M, base[g] - base[f])
+            P[f] = base[f] + s_ * U[f]
+        if not ok:
+            continue
+        # fence i really runs from its fixed far end A_i to P_i, not along the shifted line: settle
+        # every pin onto its host segment by alternating projections (converges in a few rounds)
+        for _ in range(60):
+            for i, f in enumerate(ends):
+                g = ends[(i + 1) % k]
+                a, b = X[far[g]], P[g]
+                dg = b - a
+                t = float((P[f] - a) @ dg) / float(dg @ dg)
+                P[f] = a + t * dg
+        trial = sk.copy()
+        new = {}
+        for f in ends:
+            new[f] = trial.add_vertex(*P[f])
+        for i, f in enumerate(ends):
+            g = ends[(i + 1) % k]
+            trial.fences[f] = [new[f] if u == v else u for u in trial.fences[f]]
+            trial.pins[new[f]] = g
+        project_pins(trial)          # pins already on the rotated fences follow them
+        try:
+            trial.compact()
+            trial.topology()
+        except (BuildError, G.InvalidTopology):
+            continue
+        return trial
+    return None
+
+
+def pinwheel(sk: Sketch, rng, size: float = 0.05, v: int | None = None) -> str | None:
+    """Turn a random joint of >= 3 fence ends (or v) into a pinwheel (`pinwheel_at`), in place."""
+    ends = _ends_at(sk)
+    cands = [v] if v is not None else [u for u, fs in ends.items() if len(fs) >= 3 and u not in sk.pins]
+    if v is None:
+        cands = [cands[i] for i in rng.permutation(len(cands))]
+    for u in cands[:8]:
+        trial = pinwheel_at(sk, int(u), size) or pinwheel_at(sk, int(u), 0.4 * size)
+        if trial is not None:
+            sk.P, sk.fences, sk.pins, sk._topo = trial.P, trial.fences, trial.pins, trial._topo
+            return f"joint {u} ({len(ends[u])} ends)"
+    return None
+
+
 def toggle_junction(sk: Sketch, rng) -> bool:
     ends = _ends_at(sk)
     X = sk.coords()

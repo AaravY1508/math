@@ -25,11 +25,16 @@ GRID_V2 = [dict(min_edge=me, rdp_eps=2.0, straight_deg=sd, lams=(0.5, 1, 2, 4, -
            for rr, ts, me, sd in itertools.product([4, 5], [0.0, 0.08], [0.06, 0.1, 0.15], [16.0, 24.0, 32.0])]
 
 
-def distinct_topologies(n, log, gif, grid=None):
+# finer reads (scale 5): lower min_edge, so short stubs (small faces, close junctions) survive
+GRID_FINE = [dict(min_edge=me, rdp_eps=re, straight_deg=sd, lams=(0.5, 1, -0.5))
+             for me, re, sd in itertools.product([0.03, 0.05, 0.08, 0.10], [2.0, 3.5], [16.0, 24.0])]
+
+
+def distinct_topologies(n, log, gif, grid=None, scale=3):
     out = {}
     for kw in (grid or GRID):
         try:
-            topo, P, info = D.digitize(str(gif), n, **kw)
+            topo, P, info = D.digitize(str(gif), n, scale=scale, **kw)
         except Exception as e:  # noqa: BLE001
             log({"n": n, "event": "digitize_fail", "kw": kw, "error": str(e)[:200]})
             continue
@@ -53,6 +58,8 @@ def main():
     ap.add_argument("--stop-file", default=None, help="stop before the next n/topology once this file exists")
     ap.add_argument("--no-write", action="store_true")
     ap.add_argument("--v2", action="store_true", help="wide v2 grid; results as results/v2-n<n>.json")
+    ap.add_argument("--scale", type=int, default=3, help="picture upscale before thinning (3: the 09-24 reads)")
+    ap.add_argument("--fine", action="store_true", help="GRID_FINE (low min_edge); results as results/s<scale>-n<n>.json")
     a = ap.parse_args()
     HERE = Path(a.out)
     RUN = HERE.name
@@ -72,7 +79,7 @@ def main():
     for n in [int(x) for x in a.ns.split(",")]:
         if os.path.exists(a.stop_file):
             log({"event": "stop_file", "n": n}); break
-        pre = "v2-" if a.v2 else ""
+        pre = "v2-" if a.v2 else (f"s{a.scale}-" if a.fine or a.scale != 3 else "")
         if (HERE / "results" / f"{pre}n{n:03d}.json").exists():
             log({"event": "skip_done", "n": n}); continue
         t0 = time.time()
@@ -80,7 +87,7 @@ def main():
         if a.fetch and not gif.exists():
             import urllib.request
             urllib.request.urlretrieve(PAGE.format(n=n), gif)
-        tops = distinct_topologies(n, log, gif, GRID_V2 if a.v2 else None)
+        tops = distinct_topologies(n, log, gif, GRID_V2 if a.v2 else (GRID_FINE if a.fine else None), scale=a.scale)
         rec = base[str(n)]["A"]
         libA = float(lib.record(n)["area"])
         res = {"n": n, "record": rec, "library": libA, "topologies": []}
@@ -113,7 +120,8 @@ def main():
                            "vs_record": best["area"] - rec, "vs_library": best["area"] - libA}
             json.dump(cfg, open(HERE / "results" / f"{pre}n{n:03d}-best.json", "w"))
             if v9.valid and v12.valid and not a.no_write:
-                meta = {"run": RUN, "via": "digitized-v2" if a.v2 else "digitized", "proposer": Mn.DIGITIZED_PROPOSER}
+                meta = {"run": RUN, "via": "digitized-v2" if a.v2 else ("digitized-" + pre.rstrip("-") if pre else "digitized"),
+                        "proposer": Mn.DIGITIZED_PROPOSER}
                 # index it as a minimum of the digitized lineage, so MinimaLibrary.best() -- which
                 # seeds later runs -- can see it (a record with no lineage is left out there)
                 topo_b, X_b = G.config_from_json(cfg)

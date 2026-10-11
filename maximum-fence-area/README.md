@@ -37,8 +37,12 @@ fence/heuristics.py the 8 ranking heuristics, each separately toggleable and wei
 fence/nets.py       Net stage: the counting envelope, the net generators, filter and rank
 fence/netevolve.py  Geometry stage: population over one net's continuous parameters + local topology moves
 fence/digitize.py   record picture (<n>.gif from the page) -> skeleton -> planar graph -> unit fences -> Topology
+fence/overlay.py    fit a layout onto its record picture (similarity ICP), score fences / branches / faces,
+                    bend the layout onto the picture (picture_fit); renders overlays (EXPERIMENTS.md change 15)
 pipeline.py         driver for the two stages: net enumeration -> per-net evolutionary search
 digitize_records.py read the page's record pictures, optimize each read, referee, write the library
+neighbourhood.py    iterated move-neighbourhood search around a library record or a seed file (change 12)
+transplant.py       seeds grown / pruned from the n-1 / n+1 records (change 17; failed, kept)
 tests/              validation gate (must pass before any search starts)
 baselines.json      best-known areas scraped from the page
 run_overnight.py    supervisor: preflight tests, GPU sharding, restarts, checkpoints, final report
@@ -91,6 +95,17 @@ tail -f runs/launch.log
 # --v2 is the wider grid that also read n = 44, 46, 49 (EXPERIMENTS.md change 11)
 CUDA_VISIBLE_DEVICES=0 OMP_NUM_THREADS=1 ./venv/bin/python digitize_records.py --fetch --ns 17,24,50 \
     --out runs/digitize-<ts>
+# ... read at 4x instead of 3x (the v2 grid at scale 4 found n=41's record topology, 2026-09-25)
+CUDA_VISIBLE_DEVICES=0 OMP_NUM_THREADS=1 ./venv/bin/python digitize_records.py --ns 41 --v2 --scale 4 \
+    --seeds 1 --out runs/digitize-<ts> --gif-dir runs/<dir with n.gif>
+
+# move-neighbourhood rounds from the library records, one GPU per process, 15 min per n; every record
+# written is indexed under a lineage (default digitized). --focus / --extra-moves pinwheel / --climb: see -h
+CUDA_VISIBLE_DEVICES=1 OMP_NUM_THREADS=1 ./venv/bin/python neighbourhood.py --queue 35,44,41 --tag r9 \
+    --budget-min 15 --out runs/<run>/nb
+
+# overlay the library layouts on the record pictures: fit, per-fence scores, focus points, PNGs
+./venv/bin/python -m fence.overlay --ns 35,44 --gif-dir runs/<dir with n.gif> --out runs/<run>/overlay
 ```
 
 Pool workers inherit the parent's thread settings: without `OMP_NUM_THREADS=1` five processes with
@@ -264,22 +279,26 @@ noise around a real effect), `--target-faces` (7, resolved 2 of 11 face-short n,
 the `onion` net generator (13: legal nets at 90% of n with the records' (F, T, joints), but stage 2
 fills them 5-15% below the library).
 
-## Status (2026-09-24)
+## Status (2026-09-25)
 
-- Library records exist for every n = 3..50, each verified by the referee at 1e-9 and 1e-12; the
-  2026-09-24 ones are indexed under the `digitized` lineage so `MinimaLibrary.best()` seeds from them.
-- Ties with the page (at its printed precision): n = 3-7, 10-14, 16-18, 36, 37. No n beats its record.
-- Shortfall against the page (re-scraped 2026-09-24, unchanged since 2026-09-21): **0.151** over
-  n = 12..50 (4.939 before the 2026-09-24 run), **0.000** over n = 3..11 (was 0.489).
-- What closed it: the page's own record pictures, read into topologies by `fence/digitize.py`
-  (`digitize_records.py`) and optimized, then move-neighbourhood search around those topologies
-  (EXPERIMENTS.md changes 11, 12). The records are rounded ring/onion layouts none of the seed
-  families builds; a regular parametric onion family did not reproduce them (change 13).
-- Open problem: the remaining gaps (largest 35 and 44 at 0.035, then 41 at 0.014) sit on a digitized topology the optimizer has
-  already filled -- 4x restarts and 3x steps change nothing (change 14) -- so each is a local misread
-  (a joint that should be a T, a fence on the wrong edge) or a genuinely different record topology.
-- Throughput: `pipeline.py` keeps a GPU only 21-28% busy (synchronous polish); `run_overnight.py`
-  89-100%. Launch every GPU job with `OMP_NUM_THREADS=1` (see Running).
+- Library records exist for every n = 3..50, each verified by the referee at 1e-9 and 1e-12; every record
+  written on 2026-09-24 and 2026-09-25 is indexed under the `digitized` lineage, so
+  `MinimaLibrary.best()` seeds from it.
+- Ties with the page (at its printed precision): n = 3-7, 10-18, 25, 26, 31, 33, 34, 36, 37, 42, 47. **No n beats its record** (the nearest ties
+  sit 1.1e-6 (18) and 1.3e-6 (17) below the page's next printed step, at the optimum of their topology).
+- Shortfall against the page (re-scraped 2026-09-25, unchanged since 2026-09-21): **0.107** over
+  n = 12..50 (0.151 before the 2026-09-25 run, 4.939 before 2026-09-24), **0.000** over n = 3..11.
+- What moved it on 2026-09-25: iterated move-neighbourhood rounds from the library (change 12), re-reading
+  the record pictures at 4x (`digitize_records.py --v2 --scale 4`: 41's topology) and hill-climbing from
+  other reads (`neighbourhood.py --climb`, change 19: 25, 26, 28). Failed and kept off: `pinwheel` (16),
+  `transplant.py` (17); overlay-guided local repair of the misreads (15) closed 1 of the 6 largest gaps.
+- Open problem: 35 and 44 (0.033 each) are about 60% of what is left. The overlay shows their drawn
+  graphs match the pictures and the picture-fitted lengths point at T-junctions merged into joints, but
+  every local repair tried gave ~0.002: the page fills a face ours leaves at 0.93-0.96 (35 top-right, 44 a
+  ten-vertex face upper left) and leaves a single short face elsewhere -- a different arrangement no
+  one- or two-move change of ours reaches.
+- Throughput: at ~15 GPU processes on serrano the CPU (eight polish workers each) is the limit, not the
+  GPUs. Launch every GPU job with `OMP_NUM_THREADS=1` (see Running).
 
 ## How it works
 

@@ -266,6 +266,12 @@ def _face_fill(sk: Bd.Sketch, rng, ctx: dict) -> str | None:
     return None if info is None else str(info.get("move"))
 
 
+@move("pinwheel", "topology",
+      "turn a joint of >= 3 fence ends into a pinwheel around a tiny face (off by default)", weight=0.0)
+def _pinwheel(sk: Bd.Sketch, rng, ctx: dict) -> str | None:
+    return Bd.pinwheel(sk, rng, ctx.get("pinwheel_size", 0.05))
+
+
 # ---------------------------------------------------------------------------
 # the population
 # ---------------------------------------------------------------------------

@@ -1327,3 +1327,266 @@ What the day says:
 - A regular ring/onion construction with the right counts is not the right net (change 13, failed).
 - Operational: spawned polish workers inherit thread settings -- five processes at 4 BLAS threads
   each drove serrano to load 146 with every GPU idle until relaunched with `OMP_NUM_THREADS=1`.
+
+## Day 7 (2026-09-25) -- 6 h run: close the last gaps, try to beat a record (`PROMPT-6h-close-and-beat.md`)
+
+Clock: started 03:09 PDT (background watchdog `runs/6h-20260925/watchdog.sh`: WARN 08:24, STOP 08:49,
+6 h at 09:09). Tree clean except the untracked brief, so no question asked; snapshot ref
+`refs/backup/pre-6h-run-20260925` = HEAD c628c67. `pytest` green (295). Baselines re-scraped once at
+03:09 PDT: page sha256 unchanged since 2026-09-21, **no record moved**. GPUs: serrano 0-4 (CUDA matmul
+OK on each); temescal's GPU 1 is off the bus again (cuInit fails on every device); ynez is another
+user's (~9 GB + ~6 GB per GPU, load 67). Start table (`runs/6h-20260925/gap-start.txt`): shortfall
+0.15130 over n = 12..50, ties as listed in the brief, largest gaps 35 0.0349, 44 0.0348, 41 0.0135,
+49 0.0106, 28 0.0091, 43 0.0072.
+
+Tooling: the 09-24 neighbourhood driver is now `neighbourhood.py` (`--n`/`--queue`, `--seed`,
+`--tag`, `--budget-min`, `--out`, `--focus`, `--extra-moves`; it iterates sweeps -- recentring on the
+best screened layout -- until the per-n budget runs out, keeps the best screened result when
+stopped, and indexes every record it writes under `--lineage`, default `digitized`). Tests:
+`tests/test_neighbourhood.py`. Background queue (`runs/6h-20260925/bgqueue.py`): the five serrano
+GPUs run change 12's iterated rounds r7, r8, ... (15 min per n, largest gap first, seeded from the
+library) whenever a phase does not need them; Phase A's six n are held out of the queue while
+Phase A runs so its result is its own.
+
+### 15. Overlay the optimized layout on the record picture; fix the misreads there -- pre-registered
+
+Hypothesis: the gaps at 35, 44, 41, 49, 28, 43 are local misreads of the digitized topology;
+overlaying the optimized layout on the picture locates them, and moves applied at that spot close
+most of each gap.
+
+Method: `fence/overlay.py` fits a similarity (reflection allowed) of the layout onto the picture's
+skeleton by two-way ICP, then scores each fence by the mean distance of its samples to the nearest
+skeleton pixel, each skeleton branch by its distance to the nearest fence, and each face by IoU with
+the picture face it overlaps most. Flagged places become `--focus` points (radius 0.5) for
+`neighbourhood.py`, which screens the neighbours whose change touches them first. Also: re-read the
+picture at a finer scale / lower `min_edge` and optimize the re-reads.
+
+Pre-registered PASS: at least 3 of {35, 44, 41, 49, 28, 43} end Phase A with gap <= half their
+Phase-0 gap (35 <= 0.01746, 44 <= 0.01740, 41 <= 0.00677, 49 <= 0.00530, 28 <= 0.00454,
+43 <= 0.00362), in the 90-min box.
+
+Sanity check before any search (03:30 PDT): the fit is tight on ties -- fit cost 0.0046 (n=17),
+0.0057 (37), 0.0056 (36), 0.0060 (24) units, per-fence median 0.002-0.003 -- and loose on exactly the
+gap n: 35 0.041, 44 0.034, 49 0.020, 41 0.018, 28 0.018, 43 0.015. The face counts of layout and
+picture agree at all six. At n=41 the overlay does **not** single out the 0.72 / 0.76 faces the brief
+expected: the picture has faces of the same shape there (IoU 0.915 and similar picture-face area),
+and the misfit is spread thinly (worst fence 0.039). At 35 and 44 it is local and visible: whole cells
+in the lower corners of 44 and the left column of 35 are attached differently from the picture.
+
+### 16. Pinwheel insertion move (`pinwheel`, netevolve, weight 0 = off) -- pre-registered
+
+Hypothesis: a pinwheel -- three (or more) fences each stopping just past the next around a tiny face
+-- turns a joint into T-junctions at no fence cost and adds a face (F = n + 1 - J); n=17's record beats
+6.0 by 0.01086 exactly this way. No existing move makes it, so it may add up to ~0.01 at any joint
+where the geometry leaves room, including at n that already tie -- the most plausible way to *beat* a
+record.
+
+Move (`fence.builder.pinwheel_at` / `pinwheel`; `netevolve` move `pinwheel`, weight 0): at a joint v
+with k >= 3 fence ends sorted by angle, fence i keeps its far end and ends where its line (shifted
+sideways by d = 0.05) meets fence i+1's, pinned on fence i+1; alternating projections settle every new
+pin exactly onto its host; one sign of d gives a legal layout when every angular gap is below 180
+degrees (a joint on a straight boundary admits none). A T-junction cannot host one (its host does not
+end there), so only joints are candidates -- a deviation from the brief's "or a T".
+Check (`tests/test_pinwheel.py`): the unit-square 2x3 grid is *not* one pinwheel from the record --
+its boundary joints admit none and its interior 4-way joints give a square pinwheel that optimizes to
+5.97998 (serrano, 2 seeds x 2 sizes); but collapsing the record's own triangle to a joint gives a
+6-face layout that optimizes to 6.0 (grid value, T = 9), and `pinwheel` at its one eligible joint
+rebuilds the record topology, which optimizes to 6.0108686594 (the record to 10 digits; also >= 6.0108
+on the CPU in the slow test).
+
+Runs: `neighbourhood.py --moves pinwheel --moves2 <the 7 usual moves>,pinwheel` (every eligible joint
+singly at level 1, then paired with the usual moves at level 2) from the library records at every tie
+(10, 11, 13, 14, 17, 18, 36, 37) and every n within 3e-4 of the page (8, 9, 23, 24, 33, 34, 46, 47, 50),
+12 min per n.
+
+Pre-registered PASS: a referee-verified area at or above the next 5th-decimal step of the page at >= 1 n
+(a genuine beat); failing that, a gain > 1e-4 over the library at >= 3 n. Reported either way: how
+many joints admitted a pinwheel, and the mean gain (pinwheel result minus library, per n).
+
+### 17. Transplant records across n (`transplant.py`) -- pre-registered
+
+Hypothesis: the record layouts at n and n +- 1 are close relatives (one ring cell more or less), so
+growing the n-1 record by one fence or pruning the n+1 record by one seeds a better start than n's own
+(possibly misread) layout.
+
+Method (`transplant.py`, new lineage `transplant`): for every n in 9..50, "up" seeds are the library
+record at n-1 grown to n by `fit_count` (and `add_face` then pruned back), "down" seeds the record at
+n+1 pruned by `fit_count` (and two `remove_face` then regrown), 40 rng seeds per direction,
+deduplicated by canonical signature and gated by the hard rules (rule 14 against today's page). Every
+distinct seed is screened (batch 1024, 600 steps, referee), best 2 at full settings (batch 2048, 1000
+steps); 4.5 min per n, three queues. Order: n below the page by gap, then ties, then Phase A's six last
+(so the two phases do not overlap on an n while Phase A runs).
+
+Pre-registered PASS: a transplant beats the library at >= 5 n, or closes >= 0.02 of the summed gap over
+the six largest-gap n (35, 44, 41, 49, 28, 43). Reported: direction (up / down) of every win.
+
+### 18. `onion_fitted` generator -- measured, then skipped (not run)
+
+The brief's Phase D (an onion family whose spoke placement is sampled from the digitized reads, bar:
+within 5% of the library at 5 sample n) was measured first (`runs/6h-20260925/rings.py`: faces
+layered by dual-graph distance from the outer face, radial edges classified by their end kinds) on the
+records at 17, 24, 33, 36, 37, 41, 46, 50:
+
+| n | cells per ring (outermost first) | radial walls of ring 1: T-T / T-J / J-T |
+|---|---|---|
+| 17 | 5, 2 | 5 / 0 / 0 |
+| 24 | 8, 2 | 6 / 6 / 1 |
+| 33 | 10, 4 | 8 / 2 / 1 |
+| 36 | 11, 4 | 6 / 6 / 4 |
+| 41 | 12, 5 | 8 / 2 / 2 |
+| 46 | 13, 5, 1 | 9 / 2 / 3 |
+| 50 | 13, 7, 1 | 10 / 3 / 1 |
+
+Two things change 13's family gets wrong, not one: most radial walls are pinned at *both* ends (T-T,
+brick-wall offsets; change 13's spokes start at a vertex or at the middle of an outer fence), and the
+inside of the outer ring is a cluster of 2-7 cells that all touch ring 1 -- not a single core polygon
+inside further rings. Re-sampling spoke placement alone would keep the second error, and a faithful
+construction of the inner cluster did not fit a 45-min box. With serrano's GPUs and CPUs saturated
+by Phases A-C and the background rounds (which were paying), Phase D was **skipped** at 04:06 PDT
+without a run; nothing was added to `fence/nets.py`.
+
+**Result of 17: FAIL** (03:51-04:30 PDT, three queues on serrano GPUs 1 and 3, `runs/6h-20260925/phaseC/`).
+All 42 n in 9..50 ran; **no transplant beat the library at any n** (0 of 42; bar: 5), so nothing
+closed any of the six largest gaps (bar: 0.02). The best transplant per n sat 0.06-0.51 below the
+library record (median about -0.3; closest 23 -0.057, 16 -0.074, 11 -0.126). Direction of the best
+per n: "up" at 35 n, "down" at 7. The "down" side was mostly empty: at 25 of 42 n rule 14 rejected every
+pruned layout -- removing a fence merges two faces, and the n+1 record minus a face is below the page's
+face floor for n. "Up" seeds (8-15 distinct per n) add a cell somewhere the n-1 layout has room,
+which is never where n's record has its extra cell: the records at n and n +- 1 are not one cell
+apart in any way `fit_count` / `remove_face` can find. `transplant.py` stays in the tree (no default
+changed); lineage `transplant` exists but has no minima.
+
+**Result of 16: FAIL** (03:48-04:44 PDT, `runs/6h-20260925/phaseB/`, tag B2; a first launch, B1, was a
+no-op: `pinwheel_at` did not yet re-project the pins other fences already had on the rotated fences, so
+no joint of any record admitted a pinwheel -- fixed with `builder.project_pins`, covered by a test).
+- Joints that admitted a pinwheel: 14 of the 17 n had at least one (38 distinct pinwheel topologies at
+  level 1); 8, 14 and 17 have no joint of three or more fence ends at all (their records use T's) --
+  n=17's own pinwheel is already in its record.
+- **No gain and no beat at any n.** Best per n, pinwheel alone or paired with a usual move at level 2,
+  minus the library: 9 -0.0064, 10 -0.0021, 11 -0.0173, 13 -0.0045, 18 -0.0063, 23 -0.0211,
+  24 -0.00043, 33 -0.0015, 34 -0.0054, 36 -0.0040, 37 -0.0130, 46 -0.0211, 47 -0.0046, 50 -0.0159;
+  mean -0.0088. A pinwheel buys its extra face with geometry the record already uses: at an optimized
+  record's Y-joint the three cells around it are full, and the tiny face costs more than it frees.
+  Its one success is the 17 record itself, which is what the move was built from.
+- `pinwheel` stays in `netevolve` with weight 0 (off by default).
+
+**Result of 15: FAIL -- 1 of 6** (03:30-04:52 PDT, inside the 90-min box; `runs/6h-20260925/phaseA/`,
+`overlay/`, `tsplit/`, `digit-s4*/`). Every gain below is referee-verified at 1e-9 and 1e-12 and indexed
+under `digitized`.
+
+| n | gap at start | gap at 04:52 | closed | bar (half) | what moved it (time, gain) |
+|---|---|---|---|---|---|
+| 41 | 0.013530 | **0.001281** | 90% | PASS | re-read at scale 4, v2 grid (03:40, +0.010917: a new topology, F 17 / T 25 / J 25), then a focused `join_to_t` from the picture-fitted seed (04:25, +0.001333) |
+| 43 | 0.007232 | 0.005180 | 28% | no | overlay-focused `remove_face` (04:08, +0.002053) |
+| 44 | 0.034808 | 0.032511 | 7% | no | `remove_face+repin` (+0.000606), t-split pair: fence 16 made a T at both ends (+0.000756), t-split of the stem at v11 (+0.000072), face-focused `join_to_t+join_to_t` (+0.000936) |
+| 35 | 0.034927 | 0.033341 | 5% | no | `remove_face+slide_t_past` (+0.000975), `repin+repin` (+0.000321), t-split at v9: the left horizontal made a T on the fence below the break (+0.000115), `slide_t_past+remove_face` (+0.000176) |
+| 49 | 0.010606 | 0.010606 | 0 | no | nothing: t-split had one candidate joint (-1.8e-5), the re-reads came in 0.0027 below |
+| 28 | 0.009071 | 0.009071 | 0 | no | nothing: t-split best -1.7e-5, re-reads -0.001 / -0.002 |
+
+What the overlay found, per step:
+1. **Overlay (as pre-registered).** Fit cost is tie-level (0.005) on ties and 0.015-0.041 on the six;
+   face counts always agree with the picture. At 35 and 44 whole cells sit visibly differently (44's
+   lower corners, 35's left column); at 41, 49, 28, 43 the misfit is thin and spread. It did not single
+   out 41's 0.72 / 0.76 faces: the picture has faces of that shape there too.
+2. **Picture-fit start.** Bending the library topology onto the picture (`overlay.picture_fit`: Adam on
+   the vertices against the skeleton's distance transform, weak unit-length pull) brings the fit to
+   0.0067-0.0088 at all six -- *the drawn graph is right* -- and optimizing from that geometry (2 noise
+   levels x 2 seeds) returns exactly the library value at all six (`phaseA/picfit-*.jsonl`). The gap is
+   in the topology, not the basin.
+3. **Fitted lengths locate it.** The picture is drawn to scale, so after the fit the page's fences are
+   unit length. On ties every fitted fence is within 0.0045 of 1; on the gap n some are 2-7% off, in
+   long/short pairs along a line (44: right boundary 1.065 then 0.982, 0.983, 0.984; 35: left column
+   1.060, 0.973, 0.969). Zoomed overlays show why: where the page has a T-junction 0.03-0.07 from a
+   fence break, the digitizer merged the two into one three-way joint (the stub-contraction pitfall of
+   09-24).
+4. **Repairing it gave little.** Exhaustive t-splits at the flagged joints (every stem/host choice,
+   singly and in pairs, `tsplit.py`), overlay- / length- / face-focused neighbourhood rounds
+   (`--focus`, tags A1-A5), a re-decomposition of the fitted graph with the digitizer's unit-length DP
+   (`regraph.py`: 0.0016-0.0043 below the library), and a CPU beam search over incidence moves scored by
+   fitted-length consistency (`picsearch.py`: its most consistent candidates optimized 1.4-2.2 *below* --
+   consistency under a soft length pull is not a proxy for area) -- together +0.0016 at 35 and +0.0023
+   at 44. Making the fitted lengths right locally does not recover the page's value there: the page
+   fills a face that is 0.936 (35) / 0.977 (44) in ours and leaves its single short face elsewhere, a
+   global difference the local repairs have not found.
+5. **Re-reading the picture** at scale 4 with the v2 grid (`digitize_records.py --v2 --scale 4`, new
+   `--scale` flag, default 3) gave 41's jump; scale 5 (v2) and scale 4 (v1 grid) re-reads were lower at
+   the other five. The same scale-4 v2 re-read over the other n below the page (not part of this bar) paid
+   at 15, 22, 26, 38, 42 (see the day's table).
+
+### 19. Hill-climb from other reads of the picture (`neighbourhood.py --climb`) -- pre-registered late
+
+Hypothesis: where local repairs of the record stall (35, 44 and the other larger gaps), a *different*
+read of the picture -- a topology the record's neighbourhood does not contain -- climbed with the same
+moves can end above the record, as 41's scale-4 read did today (+0.0109, then +0.0013).
+
+Method: `--climb` makes `neighbourhood.py` recentre each sweep on the best layout screened so far even
+when it is below the library (default: only above it). Seeds (`runs/6h-20260925/readseeds.py`): the best
+distinct read topologies of each n from every digitize log of 09-24 and today, excluding the record's
+own topology. Honest timing: the first five climbs (35: three reads, 44: two; 20 min each) started at
+04:55 before this entry; their first sweeps were seen before it was written (35 best read 13.8493 ->
+13.8593, 44 17.8497 -> 17.8717, both still below the library). Everything after 05:11 was launched
+after it: the two best continued 30 min (tag R0b), and the two best reads of 49, 28, 43, 39, 27, 48,
+26, 20 at 15 min per n (tags R0, R1).
+
+Pre-registered PASS: a climb ends above the library record at >= 2 of the climbed n (35, 44, 49, 28,
+43, 39, 27, 48, 26, 20). Reported per n: seed read, best climbed value, vs library at launch.
+
+**Result of 19: PASS** (04:55-08:49 PDT, `runs/6h-20260925/climb/`). Of the pre-registered n, climbs from
+other reads ended above the library at **28** (read `684378f3834e` of the scale-5 v2 re-read, 10.72267 ->
+10.72979, **+0.006162**, gap 0.00907 -> 0.00291) and **26** (+0.000047, now a tie); from the second list,
+launched after the entry, **25** (+0.000556, now a tie). Everywhere else the climbs ended at or below the
+library: at 19, 20, 21, 22, 26 (R0), 27, 28 (R1), 29, 32, 43 a read climbed *exactly* onto the library value --
+the record is the attractor of those reads' neighbourhoods -- and at 35 (best of five climbs 13.86801,
+-0.0016 after 1 h 20 min), 44 (17.87896, -0.0081), 39 (-0.027), 48 (-0.0074), 49 (-0.0021), 40 (-0.000013)
+they stayed below. Unregistered variant, no bar: escape climbs from the record itself (`--seed library
+--climb`: the first sweep may recentre below the record) gave +0.000012 at 39 and nothing at 20, 27, 35, 43,
+44, 48, 49.
+
+### 12 (continued). Background neighbourhood rounds r7-r12 (change 12's method, library-seeded)
+
+The five serrano GPUs ran `bgqueue.py` the whole run (03:20-08:49): rounds r7..r12, 15 min per n, largest
+gap first, Phase A's six n held out 03:20-04:52. Plus two unregistered side queues with change 12's
+method: tie rounds (T1, the 8 ties + 33 with `--extra-moves pinwheel`, 12 min per n: no beat, closest an
+alternative 2.3e-6 below at 37) and near-tie rounds (N1, 41 46 23 30 42 45 50 9, 12 min per n: 42 +3.1e-5
+to a tie, 41 +1.6e-6).
+Result: 27 + 32 + 27 + 25 + 25 + 5 n in rounds r7-r12 (r12 cut by the STOP); library gains at 19 n totalling **+0.01672**
+(9, 15, 19, 23, 26, 29, 30, 31, 33, 34, 39, 41, 42, 44, 45, 46, 47, 48, 50), the largest 19 +0.0028,
+26 +0.0035 (with the climb), 15 +0.0017 (to a tie), 31 +0.0015 (to a tie), 39 +0.0017, 42 +0.0017, 41
++0.0012 (after Phase A's +0.0122). Moves of the winning neighbours, as on 09-24: `remove_face` and
+`join_to_t`, singly or paired. Gains came in the first four hours; from 06:50 to 08:49 only 39 moved.
+
+## Day 7 result (6 h run of 2026-09-25, 03:09-08:49 PDT of GPU work; `runs/combined-20260925.txt`)
+
+STOP at 08:49:26 (5:40 into the box), every GPU process gone at 08:49:57. All 25 records the run wrote
+were re-verified by the referee at 1e-9 **and** 1e-12 after the last writer exited (all valid), against
+the page as scraped once at 03:09 (unchanged since 2026-09-21), and each is `MinimaLibrary.best()`'s
+first entry under the `digitized` lineage.
+
+| | n = 12..50 | n = 3..11 |
+|---|---|---|
+| shortfall at the start of the run | 0.15130 | 0.00000 |
+| **now** | **0.10725** | **0.00000** |
+
+- **Ties with the page at its printed precision: n = 3-7, 10-18, 25, 26, 31, 33, 34, 36, 37, 42, 47**
+  (new today: 15, 25, 26, 31, 33, 34, 42, 47). **No n beats its record**; the nearest ties are 1.1e-6 (18)
+  and 1.3e-6 (17) below the page's next printed step, at the optimum of their topologies, and the tie
+  rounds with the pinwheel move found nothing above them. Nearest below: 8 (1.7e-6), 9 (2e-6), 50 (5e-6),
+  45 (2.9e-5), 46 (5.6e-5), 41 (7.1e-5).
+- Largest remaining gaps: 35 0.0333, 44 0.0325, 49 0.0106, 43 0.0052, 27 0.0048, 39 0.0032, 20 0.0031.
+- Where the 0.04405 came from (`runs/6h-20260925/attribution.py`): background rounds (12) +0.01672 over
+  19 n; Phase A (15) +0.01828 over 35, 41, 43, 44 -- 41's scale-4 re-read alone +0.0109; scale-4 re-reads
+  of other n +0.00233 over 15, 22, 26, 38, 42; climbs from other reads (19) +0.00676 over 25, 26, 28;
+  near-tie and escape-climb rounds +0.00004.
+- Verdicts: 15 overlay repair FAIL (1 of 6), 16 pinwheel FAIL (0 gains, mean -0.0088), 17 transplant FAIL
+  (0 of 42), 18 onion_fitted not run (measured, skipped), 19 climb from other reads PASS (28, 26; and 25).
+
+What the day says:
+- The pictures still hold the answers, but a single read is not the answer: another read of the same
+  picture (scale 4 or 5) plus a climb found 41's and 28's topologies, which no local repair of the
+  record reached. The drawn graph was right at every gap n; the errors are incidences -- a T-junction
+  0.03-0.07 from a fence break read as one joint -- that a to-scale fit of the picture locates.
+- Locating them was not enough at 35 and 44: fixing the flagged spots one or two at a time never paid
+  more than ~0.002. There the page fills a face ours leaves at 0.93-0.96 and keeps one short face
+  elsewhere -- a different arrangement, about 60% of the remaining shortfall.
+- Operational: at ~15 GPU processes serrano's CPU (eight polish workers each) was the bottleneck, load
+  40-44 of 48 with GPU SM use 0-47%.
