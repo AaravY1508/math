@@ -1,4 +1,4 @@
-# erich-friedman
+# math
 
 Computational research harnesses for open problems from Erich Friedman's
 [Packing Center](https://erich-friedman.github.io/packing/). Each problem lives
