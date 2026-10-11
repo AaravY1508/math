@@ -1,0 +1,37 @@
+{
+  "valid": true,
+  "certified": true,
+  "status": "certified",
+  "n": 44,
+  "objective_lower": 485.2415240784824,
+  "objective_upper": 485.24152507688615,
+  "objective_estimate": 485.24152507688075,
+  "gap": 9.984037205867937e-07,
+  "tolerance": 1e-06,
+  "witness": [
+    1.0,
+    0.890064753884437
+  ],
+  "witness_intensity_interval": [
+    485.2415250768753,
+    485.24152507688615
+  ],
+  "processed_boxes": 6898,
+  "remaining_boxes": 0,
+  "elapsed_seconds": 5.61799066606909,
+  "domain": [
+    0.0,
+    1.0,
+    0.0,
+    1.0
+  ],
+  "coordinate_interpretation": "exact IEEE-754 binary64 values",
+  "coordinates_sha256_float64_little_endian": "48edd7ff15e38f5633a15427d192085a19e787979a00ff4a2fbbb0cb9c155beb",
+  "bound_method": "outward-rounded spatial branch and bound; reciprocal tangents, farthest distances, cubic Taylor bounds",
+  "numerical_minima": [],
+  "validator_source_sha256": "6bca86b04df4dd31af4cd09ddc00f7f039f723666ffb777c31cba51333484b42",
+  "verified_at_utc": "2026-10-04T01:25:52.613617+00:00",
+  "claimed_objective": 485.24152507688075,
+  "claimed_objective_minus_proved_upper": -5.4001247917767614e-12,
+  "oracle_missed_lower_minimum": false
+}

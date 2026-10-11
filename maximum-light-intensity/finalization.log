@@ -1,0 +1,15 @@
+{"n": 41, "input_count": 5, "polished_count": 3, "best_objective": 443.97388793900217, "certificate_lower": 443.9738869543541, "certified": true, "elapsed_seconds": 14.504282236099243}
+{"n": 37, "input_count": 5, "polished_count": 3, "best_objective": 387.71139686736774, "certificate_lower": 387.7113958690206, "certified": true, "elapsed_seconds": 14.753587245941162}
+{"n": 47, "input_count": 7, "polished_count": 3, "best_objective": 528.1791268948398, "certificate_lower": 528.179125907302, "certified": true, "elapsed_seconds": 20.768945932388306}
+{"n": 36, "input_count": 3, "polished_count": 3, "best_objective": 373.2073914541583, "certificate_lower": 373.2073904630992, "certified": true, "elapsed_seconds": 21.43810510635376}
+{"n": 39, "input_count": 5, "polished_count": 4, "best_objective": 416.0382942060655, "certificate_lower": 416.0382932132262, "certified": true, "elapsed_seconds": 23.34220290184021}
+{"n": 38, "input_count": 4, "polished_count": 4, "best_objective": 402.7935476342311, "certificate_lower": 402.79354667401515, "certified": true, "elapsed_seconds": 27.681711196899414}
+{"n": 43, "input_count": 9, "polished_count": 4, "best_objective": 471.02413961760305, "certificate_lower": 471.0241386213453, "certified": true, "elapsed_seconds": 32.59943413734436}
+{"n": 40, "input_count": 4, "polished_count": 3, "best_objective": 431.08912121073706, "certificate_lower": 431.0891202121153, "certified": true, "elapsed_seconds": 33.52679228782654}
+{"n": 42, "input_count": 9, "polished_count": 4, "best_objective": 457.63308934565964, "certificate_lower": 457.6330883490372, "certified": true, "elapsed_seconds": 33.5341591835022}
+{"n": 48, "input_count": 9, "polished_count": 3, "best_objective": 543.6729311365859, "certificate_lower": 543.6729302309104, "certified": true, "elapsed_seconds": 16.53477144241333}
+{"n": 49, "input_count": 6, "polished_count": 3, "best_objective": 557.5791258285909, "certificate_lower": 557.5791248410155, "certified": true, "elapsed_seconds": 16.614158153533936}
+{"n": 45, "input_count": 5, "polished_count": 4, "best_objective": 499.2192000211207, "certificate_lower": 499.21919903069096, "certified": true, "elapsed_seconds": 27.57609987258911}
+{"n": 44, "input_count": 8, "polished_count": 4, "best_objective": 485.24152507688075, "certificate_lower": 485.2415240784824, "certified": true, "elapsed_seconds": 30.9574613571167}
+{"n": 46, "input_count": 5, "polished_count": 4, "best_objective": 513.6354682681704, "certificate_lower": 513.6354672759874, "certified": true, "elapsed_seconds": 26.06359553337097}
+{"n": 50, "input_count": 10, "polished_count": 5, "best_objective": 572.3938994300249, "certificate_lower": 572.3938984379045, "certified": true, "elapsed_seconds": 50.39286923408508}

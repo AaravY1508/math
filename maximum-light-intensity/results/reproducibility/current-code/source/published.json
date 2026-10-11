@@ -1,0 +1,332 @@
+{
+  "source_url": "https://erich-friedman.github.io/packing/light/",
+  "retrieved_at_utc": "2026-10-02T12:27:31.681864+00:00",
+  "largest_published_n": 36,
+  "comparison_caveat": "Trailing plus values are displayed lower thresholds, not exact records. No baseline is inferred for unlisted n.",
+  "entries": {
+    "1": {
+      "n": 1,
+      "displayed": "2",
+      "value": 2.0,
+      "has_trailing_plus": false,
+      "attribution": "Trivial.",
+      "image": "1.gif",
+      "exact_coordinates_published": false
+    },
+    "2": {
+      "n": 2,
+      "displayed": "24/5 = 4.8",
+      "value": 4.8,
+      "has_trailing_plus": false,
+      "attribution": "Found by Erich Friedman in July 2026.",
+      "image": "2.gif",
+      "exact_coordinates_published": false
+    },
+    "3": {
+      "n": 3,
+      "displayed": "7.568+",
+      "value": 7.568,
+      "has_trailing_plus": true,
+      "attribution": "Found by Shaoheng Lai and Codex in August 2026.",
+      "image": "3.gif",
+      "exact_coordinates_published": false
+    },
+    "4": {
+      "n": 4,
+      "displayed": "17.729+",
+      "value": 17.729,
+      "has_trailing_plus": true,
+      "attribution": "Found by Erich Friedman in July 2026.",
+      "image": "4.gif",
+      "exact_coordinates_published": false
+    },
+    "5": {
+      "n": 5,
+      "displayed": "22.252+",
+      "value": 22.252,
+      "has_trailing_plus": true,
+      "attribution": "Found by Mishari Alhussain in September 2026.",
+      "image": "5.gif",
+      "exact_coordinates_published": false
+    },
+    "6": {
+      "n": 6,
+      "displayed": "29.791+",
+      "value": 29.791,
+      "has_trailing_plus": true,
+      "attribution": "Found by Erich Friedman in July 2026.",
+      "image": "6.gif",
+      "exact_coordinates_published": false
+    },
+    "7": {
+      "n": 7,
+      "displayed": "35.909+",
+      "value": 35.909,
+      "has_trailing_plus": true,
+      "attribution": "Found by Satoshi Kishimoto and GPT-5.6 Sol Pro in July 2026.",
+      "image": "7.gif",
+      "exact_coordinates_published": false
+    },
+    "8": {
+      "n": 8,
+      "displayed": "47.839+",
+      "value": 47.839,
+      "has_trailing_plus": true,
+      "attribution": "Found by Satoshi Kishimoto and GPT-5.6 Sol Pro in July 2026.",
+      "image": "8.gif",
+      "exact_coordinates_published": false
+    },
+    "9": {
+      "n": 9,
+      "displayed": "57.388+",
+      "value": 57.388,
+      "has_trailing_plus": true,
+      "attribution": "Found by Erich Friedman in July 2026.",
+      "image": "9.gif",
+      "exact_coordinates_published": false
+    },
+    "10": {
+      "n": 10,
+      "displayed": "64.751+",
+      "value": 64.751,
+      "has_trailing_plus": true,
+      "attribution": "Found by Mishari Alhussain in September 2026.",
+      "image": "10.gif",
+      "exact_coordinates_published": false
+    },
+    "11": {
+      "n": 11,
+      "displayed": "74.352+",
+      "value": 74.352,
+      "has_trailing_plus": true,
+      "attribution": "Found by Satoshi Kishimoto and GPT-5.6 Sol Pro in July 2026.",
+      "image": "11.gif",
+      "exact_coordinates_published": false
+    },
+    "12": {
+      "n": 12,
+      "displayed": "83.571+",
+      "value": 83.571,
+      "has_trailing_plus": true,
+      "attribution": "Found by Satoshi Kishimoto and GPT-5.6 Sol Pro in July 2026.",
+      "image": "12.gif",
+      "exact_coordinates_published": false
+    },
+    "13": {
+      "n": 13,
+      "displayed": "96.347+",
+      "value": 96.347,
+      "has_trailing_plus": true,
+      "attribution": "Found by Erich Friedman in July 2026.",
+      "image": "13.gif",
+      "exact_coordinates_published": false
+    },
+    "14": {
+      "n": 14,
+      "displayed": "106.190+",
+      "value": 106.19,
+      "has_trailing_plus": true,
+      "attribution": "Found by Satoshi Kishimoto and GPT-5.6 Sol Pro in July 2026.",
+      "image": "14.gif",
+      "exact_coordinates_published": false
+    },
+    "15": {
+      "n": 15,
+      "displayed": "115.159+",
+      "value": 115.159,
+      "has_trailing_plus": true,
+      "attribution": "Found by Mishari Alhussain in September 2026.",
+      "image": "15.gif",
+      "exact_coordinates_published": false
+    },
+    "16": {
+      "n": 16,
+      "displayed": "125.458+",
+      "value": 125.458,
+      "has_trailing_plus": true,
+      "attribution": "Found by Mishari Alhussain in September 2026.",
+      "image": "16.gif",
+      "exact_coordinates_published": false
+    },
+    "17": {
+      "n": 17,
+      "displayed": "135.166+",
+      "value": 135.166,
+      "has_trailing_plus": true,
+      "attribution": "Found by Mishari Alhussain in September 2026.",
+      "image": "17.gif",
+      "exact_coordinates_published": false
+    },
+    "18": {
+      "n": 18,
+      "displayed": "147.341+",
+      "value": 147.341,
+      "has_trailing_plus": true,
+      "attribution": "Found by Mishari Alhussain in September 2026.",
+      "image": "18.gif",
+      "exact_coordinates_published": false
+    },
+    "19": {
+      "n": 19,
+      "displayed": "159.385+",
+      "value": 159.385,
+      "has_trailing_plus": true,
+      "attribution": "Found by Mishari Alhussain in September 2026.",
+      "image": "19.gif",
+      "exact_coordinates_published": false
+    },
+    "20": {
+      "n": 20,
+      "displayed": "174.655+",
+      "value": 174.655,
+      "has_trailing_plus": true,
+      "attribution": "Found by Mishari Alhussain in September 2026.",
+      "image": "20.gif",
+      "exact_coordinates_published": false
+    },
+    "21": {
+      "n": 21,
+      "displayed": "184.439+",
+      "value": 184.439,
+      "has_trailing_plus": true,
+      "attribution": "Found by You Junzhe in September 2026.",
+      "image": "21.gif",
+      "exact_coordinates_published": false
+    },
+    "22": {
+      "n": 22,
+      "displayed": "195.360+",
+      "value": 195.36,
+      "has_trailing_plus": true,
+      "attribution": "Found by Mishari Alhussain in September 2026.",
+      "image": "22.gif",
+      "exact_coordinates_published": false
+    },
+    "23": {
+      "n": 23,
+      "displayed": "206.538+",
+      "value": 206.538,
+      "has_trailing_plus": true,
+      "attribution": "Found by Mishari Alhussain in September 2026.",
+      "image": "23.gif",
+      "exact_coordinates_published": false
+    },
+    "24": {
+      "n": 24,
+      "displayed": "219.197+",
+      "value": 219.197,
+      "has_trailing_plus": true,
+      "attribution": "Found by Mishari Alhussain in September 2026.",
+      "image": "24.gif",
+      "exact_coordinates_published": false
+    },
+    "25": {
+      "n": 25,
+      "displayed": "229.700+",
+      "value": 229.7,
+      "has_trailing_plus": true,
+      "attribution": "Found by Mishari Alhussain in September 2026.",
+      "image": "25.gif",
+      "exact_coordinates_published": false
+    },
+    "26": {
+      "n": 26,
+      "displayed": "242.004+",
+      "value": 242.004,
+      "has_trailing_plus": true,
+      "attribution": "Found by Mishari Alhussain in September 2026.",
+      "image": "26.gif",
+      "exact_coordinates_published": false
+    },
+    "27": {
+      "n": 27,
+      "displayed": "254.776+",
+      "value": 254.776,
+      "has_trailing_plus": true,
+      "attribution": "Found by Mishari Alhussain in September 2026.",
+      "image": "27.gif",
+      "exact_coordinates_published": false
+    },
+    "28": {
+      "n": 28,
+      "displayed": "269.279+",
+      "value": 269.279,
+      "has_trailing_plus": true,
+      "attribution": "Found by Mishari Alhussain in September 2026.",
+      "image": "28.gif",
+      "exact_coordinates_published": false
+    },
+    "29": {
+      "n": 29,
+      "displayed": "285.128+",
+      "value": 285.128,
+      "has_trailing_plus": true,
+      "attribution": "Found by Mishari Alhussain in September 2026.",
+      "image": "29.gif",
+      "exact_coordinates_published": false
+    },
+    "30": {
+      "n": 30,
+      "displayed": "296.005+",
+      "value": 296.005,
+      "has_trailing_plus": true,
+      "attribution": "Found by Mishari Alhussain in September 2026.",
+      "image": "30.gif",
+      "exact_coordinates_published": false
+    },
+    "31": {
+      "n": 31,
+      "displayed": "307.962+",
+      "value": 307.962,
+      "has_trailing_plus": true,
+      "attribution": "Found by Mishari Alhussain in September 2026.",
+      "image": "31.gif",
+      "exact_coordinates_published": false
+    },
+    "32": {
+      "n": 32,
+      "displayed": "320.497+",
+      "value": 320.497,
+      "has_trailing_plus": true,
+      "attribution": "Found by Mishari Alhussain in September 2026.",
+      "image": "32.gif",
+      "exact_coordinates_published": false
+    },
+    "33": {
+      "n": 33,
+      "displayed": "334.037+",
+      "value": 334.037,
+      "has_trailing_plus": true,
+      "attribution": "Found by Mishari Alhussain in September 2026.",
+      "image": "33.gif",
+      "exact_coordinates_published": false
+    },
+    "34": {
+      "n": 34,
+      "displayed": "346.509+",
+      "value": 346.509,
+      "has_trailing_plus": true,
+      "attribution": "Found by Mishari Alhussain in September 2026.",
+      "image": "34.gif",
+      "exact_coordinates_published": false
+    },
+    "35": {
+      "n": 35,
+      "displayed": "359.463+",
+      "value": 359.463,
+      "has_trailing_plus": true,
+      "attribution": "Found by Mishari Alhussain in September 2026.",
+      "image": "35.gif",
+      "exact_coordinates_published": false
+    },
+    "36": {
+      "n": 36,
+      "displayed": "373.207+",
+      "value": 373.207,
+      "has_trailing_plus": true,
+      "attribution": "Found by Mishari Alhussain in September 2026.",
+      "image": "36.gif",
+      "exact_coordinates_published": false
+    }
+  }
+}

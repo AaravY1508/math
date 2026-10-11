@@ -1,0 +1,228 @@
+{
+  "retrieved_at_utc": "2026-10-02T12:27:31.681864+00:00",
+  "source_url": "https://erich-friedman.github.io/packing/light/",
+  "files": [
+    {
+      "file": "index.html",
+      "url": "https://erich-friedman.github.io/packing/light/",
+      "sha256": "73d88482aea98a14584c79dc23e5e2718f1f9750cba99a8d0e32f00bf885401a",
+      "bytes": 7490
+    },
+    {
+      "file": "1.gif",
+      "url": "https://erich-friedman.github.io/packing/light/1.gif",
+      "sha256": "e1f0591f20e7d924ae53a343a17c7780df6cb8191ab5eba1f6dd5d96632b9b29",
+      "bytes": 5236
+    },
+    {
+      "file": "2.gif",
+      "url": "https://erich-friedman.github.io/packing/light/2.gif",
+      "sha256": "a81e9bc648e1ededf270f591cbf1d8e3bea8993611733b4e5d02ed94ccb3daab",
+      "bytes": 5290
+    },
+    {
+      "file": "3.gif",
+      "url": "https://erich-friedman.github.io/packing/light/3.gif",
+      "sha256": "022f3f0956455662067e44817014dfb723517089ba8675e31caf364673a8fa60",
+      "bytes": 6604
+    },
+    {
+      "file": "4.gif",
+      "url": "https://erich-friedman.github.io/packing/light/4.gif",
+      "sha256": "5a76e7c4c4d1901d064a60ffba483ce58f237d0a8a9f771692e72b2103cc6912",
+      "bytes": 8373
+    },
+    {
+      "file": "5.gif",
+      "url": "https://erich-friedman.github.io/packing/light/5.gif",
+      "sha256": "60232008c2c55c9077b81215ccb96674d906f1b6a1b2c0ddb41f02e830fd4371",
+      "bytes": 8521
+    },
+    {
+      "file": "6.gif",
+      "url": "https://erich-friedman.github.io/packing/light/6.gif",
+      "sha256": "47b870ccad66760b09717257139113968588f9dd9bd0e0e91b6cdeb7c56c25b5",
+      "bytes": 8462
+    },
+    {
+      "file": "7.gif",
+      "url": "https://erich-friedman.github.io/packing/light/7.gif",
+      "sha256": "65a9f3098a02d1f7e23240efd7f8cdee84c4c7f85af0b5b23904e453c8fc82e9",
+      "bytes": 8751
+    },
+    {
+      "file": "8.gif",
+      "url": "https://erich-friedman.github.io/packing/light/8.gif",
+      "sha256": "d1d8db7300d19425935e2b4431f1cb4f9331a832db1ae878b1ee82e7ac1c386f",
+      "bytes": 9886
+    },
+    {
+      "file": "9.gif",
+      "url": "https://erich-friedman.github.io/packing/light/9.gif",
+      "sha256": "ffa76f2e43cc0922d738f2aee908f18edf7ac25d2435270da318d18082989ca9",
+      "bytes": 9211
+    },
+    {
+      "file": "10.gif",
+      "url": "https://erich-friedman.github.io/packing/light/10.gif",
+      "sha256": "280fd715502daa74173819b63a7777599bb43f0800ac8e62746185fdc3027f02",
+      "bytes": 9507
+    },
+    {
+      "file": "11.gif",
+      "url": "https://erich-friedman.github.io/packing/light/11.gif",
+      "sha256": "4a25bbaa273065094f685d170200d75eccb6cb6c5e9f5650313de8fb43022e7c",
+      "bytes": 11006
+    },
+    {
+      "file": "12.gif",
+      "url": "https://erich-friedman.github.io/packing/light/12.gif",
+      "sha256": "65d0b5b88c432a8b3ca1f0fffd176209b5d61248dcdfae72b3646dd041f4613d",
+      "bytes": 10870
+    },
+    {
+      "file": "13.gif",
+      "url": "https://erich-friedman.github.io/packing/light/13.gif",
+      "sha256": "716f5ab45e263ec0e00e3833ced2b1243a10586890ce27a38f109684cd0820f1",
+      "bytes": 10946
+    },
+    {
+      "file": "14.gif",
+      "url": "https://erich-friedman.github.io/packing/light/14.gif",
+      "sha256": "6ec57e5f23963c2d6425c0e942845e7a3ce2cfb105e775862e5265e32e41c077",
+      "bytes": 10967
+    },
+    {
+      "file": "15.gif",
+      "url": "https://erich-friedman.github.io/packing/light/15.gif",
+      "sha256": "b3b953948d3f3bd8531c556cfd496785360a4979561b03db6dd15e090b9b13cb",
+      "bytes": 10900
+    },
+    {
+      "file": "16.gif",
+      "url": "https://erich-friedman.github.io/packing/light/16.gif",
+      "sha256": "1374b7fe8956127dd356e6ec1b40d281fe8f80aaaba5fa93fe07c151e13742ce",
+      "bytes": 11081
+    },
+    {
+      "file": "17.gif",
+      "url": "https://erich-friedman.github.io/packing/light/17.gif",
+      "sha256": "f9dd5af2af50e54d475bcdca7c17031ad36fe8a77ddcfe12aead4cfd8de75611",
+      "bytes": 8952
+    },
+    {
+      "file": "18.gif",
+      "url": "https://erich-friedman.github.io/packing/light/18.gif",
+      "sha256": "ec15b4ebd3b2a2014bd7cac5139433e80cc7506b0fcfc2580716dd7a5f3a5017",
+      "bytes": 9386
+    },
+    {
+      "file": "19.gif",
+      "url": "https://erich-friedman.github.io/packing/light/19.gif",
+      "sha256": "d4df94e08ef3b3a5bf600f63ea29afd638c106ac7d70672edb12f04393ad65b3",
+      "bytes": 9301
+    },
+    {
+      "file": "20.gif",
+      "url": "https://erich-friedman.github.io/packing/light/20.gif",
+      "sha256": "50c099fd8849558d8b9b7f6f3b81d6c48b5b94c994370e95a223160b93c8ea43",
+      "bytes": 9399
+    },
+    {
+      "file": "21.gif",
+      "url": "https://erich-friedman.github.io/packing/light/21.gif",
+      "sha256": "ef2710a46794802e57d629d000451a1c5b07858ddb1aab85260fcdbb813f837b",
+      "bytes": 9699
+    },
+    {
+      "file": "22.gif",
+      "url": "https://erich-friedman.github.io/packing/light/22.gif",
+      "sha256": "4ee03a09586a3bc9fa6f75d02dcbe32a7767bb6e4c3275b3f9f7c808ffbcdcab",
+      "bytes": 13666
+    },
+    {
+      "file": "23.gif",
+      "url": "https://erich-friedman.github.io/packing/light/23.gif",
+      "sha256": "53fdea25e34ab185f4f51fdc461568320dc8af4bcf439416f9b485e2bc0ccfc0",
+      "bytes": 13351
+    },
+    {
+      "file": "24.gif",
+      "url": "https://erich-friedman.github.io/packing/light/24.gif",
+      "sha256": "e197b83b4cda39cfff22b35c7867c77afd1a7ceb08f180948a4190271bfb87ae",
+      "bytes": 14804
+    },
+    {
+      "file": "25.gif",
+      "url": "https://erich-friedman.github.io/packing/light/25.gif",
+      "sha256": "f97e90800a12b8addd8cecd4e0283e0db398baec88f64810260a9a1e0727ddb7",
+      "bytes": 14582
+    },
+    {
+      "file": "26.gif",
+      "url": "https://erich-friedman.github.io/packing/light/26.gif",
+      "sha256": "f8b685b749badbecdd735ee222030c702c56eaf7eb6fca66e62ad7c80f86dd34",
+      "bytes": 14052
+    },
+    {
+      "file": "27.gif",
+      "url": "https://erich-friedman.github.io/packing/light/27.gif",
+      "sha256": "3b102bdb0938836b16bf51d0c99b8a12759601676dcc738d2bebd0bb48d7d394",
+      "bytes": 14509
+    },
+    {
+      "file": "28.gif",
+      "url": "https://erich-friedman.github.io/packing/light/28.gif",
+      "sha256": "55cc871d0d9f1f01bbb5b59e91109552e67738403088cc8fac3c4912293b1a15",
+      "bytes": 15075
+    },
+    {
+      "file": "29.gif",
+      "url": "https://erich-friedman.github.io/packing/light/29.gif",
+      "sha256": "f6924dc35b3ebd730586a76f422d1c9b6c47ba014428b3c09f78b9e3d2c7a376",
+      "bytes": 14663
+    },
+    {
+      "file": "30.gif",
+      "url": "https://erich-friedman.github.io/packing/light/30.gif",
+      "sha256": "35482873bd3b5dc854e35f7ddb75609d5f09ea0d54fe5e67886d8f40df1cf658",
+      "bytes": 15018
+    },
+    {
+      "file": "31.gif",
+      "url": "https://erich-friedman.github.io/packing/light/31.gif",
+      "sha256": "750b6f13deca40772ece351c56c8a28e95127b246c8b4297e9e224df152ed4d2",
+      "bytes": 15326
+    },
+    {
+      "file": "32.gif",
+      "url": "https://erich-friedman.github.io/packing/light/32.gif",
+      "sha256": "2b488a7edfef5531a92a8efa9a1f4b1d5ac26c76309fc833b88acd5da69cbd81",
+      "bytes": 15401
+    },
+    {
+      "file": "33.gif",
+      "url": "https://erich-friedman.github.io/packing/light/33.gif",
+      "sha256": "a0873d8bb75fb583b8771fa5b1a8b9aaa9002265ce097f75162497c4f7ae605f",
+      "bytes": 15874
+    },
+    {
+      "file": "34.gif",
+      "url": "https://erich-friedman.github.io/packing/light/34.gif",
+      "sha256": "84c6d1532e1bff6e58409b226c7192932c6f1977032dfda07f98b2aa1a599181",
+      "bytes": 15121
+    },
+    {
+      "file": "35.gif",
+      "url": "https://erich-friedman.github.io/packing/light/35.gif",
+      "sha256": "261acee1b5ed97b13cf358fcce1515f2bdd0bd100d72a527cf207a4d4cb11c6b",
+      "bytes": 16055
+    },
+    {
+      "file": "36.gif",
+      "url": "https://erich-friedman.github.io/packing/light/36.gif",
+      "sha256": "67aeca9f14f8366c59832201164e3ae0e3320a792ac26921272ad2d54b117e1a",
+      "bytes": 16132
+    }
+  ]
+}

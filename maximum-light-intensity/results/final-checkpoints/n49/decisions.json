@@ -1,0 +1,199 @@
+{
+  "n": 49,
+  "input_count": 6,
+  "polished_count": 3,
+  "best_objective": 557.5791258285909,
+  "certificate_lower": 557.5791248410155,
+  "certified": true,
+  "elapsed_seconds": 16.614158153533936,
+  "decisions": [
+    {
+      "stage": "rerank",
+      "sources": [
+        "runs/benchmark/checkpoints/n49/best.json",
+        "runs/benchmark/checkpoints/n49/history/0000791.json"
+      ],
+      "hash": "39376b80928db6a691603d5b757dd840468382d58974099e1a2ed9ad607ac938",
+      "claimed": 556.5961160009036,
+      "corrected": 556.5961160009035,
+      "drop": 1.1368683772161603e-13
+    },
+    {
+      "stage": "rerank",
+      "sources": [
+        "runs/benchmark/checkpoints/n49/history/0000013.json"
+      ],
+      "hash": "39b8826ce268eeaa6e24a7e0c559b4d03f12145ba92c93de34a8502ea7015e0e",
+      "claimed": 545.3388175255536,
+      "corrected": 545.3388175255535,
+      "drop": 1.1368683772161603e-13
+    },
+    {
+      "stage": "rerank",
+      "sources": [
+        "runs/benchmark/checkpoints/n49/history/0000028.json"
+      ],
+      "hash": "c90c01412e317248f4aacd09fed603b5fbcf9afe0863ab466f1d181ed114494f",
+      "claimed": 552.483741832597,
+      "corrected": 552.483741832597,
+      "drop": 0.0
+    },
+    {
+      "stage": "rerank",
+      "sources": [
+        "runs/benchmark/checkpoints/n49/history/0000066.json"
+      ],
+      "hash": "bd20025ea92f1fa429a0b49d5796ecf259c3fd209956e464e4ccb8c4f91123b2",
+      "claimed": 555.8284963494531,
+      "corrected": 555.828496349453,
+      "drop": 1.1368683772161603e-13
+    },
+    {
+      "stage": "rerank",
+      "sources": [
+        "runs/four-hour/checkpoints/n49/best.json",
+        "runs/four-hour/checkpoints/n49/history/0000546.json",
+        "runs/four-hour/checkpoints/n49/validations/fef20c6bf4afeb8c91fd169006b57aba337017332c73bab5c74b8080a9dbf160/checkpoint.json"
+      ],
+      "hash": "fef20c6bf4afeb8c91fd169006b57aba337017332c73bab5c74b8080a9dbf160",
+      "claimed": 557.5791258274161,
+      "corrected": 557.5791258274161,
+      "drop": 0.0
+    },
+    {
+      "stage": "rerank",
+      "sources": [
+        "runs/four-hour/checkpoints/n49/history/0000013.json"
+      ],
+      "hash": "d6c9aae60f58ff29a867a25dc60974870bb8291f7d7feed583d38efe4ab64293",
+      "claimed": 557.2404042895599,
+      "corrected": 557.2404042895599,
+      "drop": 0.0
+    },
+    {
+      "stage": "polish",
+      "candidate": 0,
+      "before": 557.5791258274161,
+      "after": 557.5791258285909,
+      "elapsed": 0.39971972606144845
+    },
+    {
+      "stage": "polish",
+      "candidate": 1,
+      "before": 557.2404042895599,
+      "after": 557.2404042932266,
+      "elapsed": 0.3509785810019821
+    },
+    {
+      "stage": "polish",
+      "candidate": 2,
+      "before": 556.5961160009035,
+      "after": 556.5961160017462,
+      "elapsed": 0.4146028358954936
+    },
+    {
+      "stage": "certificate",
+      "candidate": 0,
+      "repair": 0,
+      "numerical": 557.5791258285909,
+      "lower": 557.5791248410155,
+      "upper": 557.579125828598,
+      "certified": true,
+      "elapsed": 6.940753348870203
+    },
+    {
+      "stage": "certificate",
+      "candidate": 1,
+      "repair": 0,
+      "numerical": 557.5791258274161,
+      "lower": 557.5791248277058,
+      "upper": 557.579125827423,
+      "certified": true,
+      "elapsed": 6.986230914015323
+    }
+  ],
+  "certifications": [
+    {
+      "candidate": 0,
+      "repair": 0,
+      "certificate": {
+        "valid": true,
+        "certified": true,
+        "status": "certified",
+        "n": 49,
+        "objective_lower": 557.5791248410155,
+        "objective_upper": 557.579125828598,
+        "objective_estimate": 557.5791258285909,
+        "gap": 9.875824389382617e-07,
+        "tolerance": 1e-06,
+        "witness": [
+          0.763900862893784,
+          0.0
+        ],
+        "witness_intensity_interval": [
+          557.579125828584,
+          557.579125828598
+        ],
+        "processed_boxes": 8712,
+        "remaining_boxes": 0,
+        "elapsed_seconds": 6.940753348870203,
+        "domain": [
+          0.0,
+          1.0,
+          0.0,
+          1.0
+        ],
+        "coordinate_interpretation": "exact IEEE-754 binary64 values",
+        "coordinates_sha256_float64_little_endian": "6faa44f2e4407efd083dd1cdbd87cc2d5002e8ebf20f6c9b0a3a1a07bcedac0c",
+        "bound_method": "outward-rounded spatial branch and bound; reciprocal tangents, farthest distances, cubic Taylor bounds",
+        "numerical_minima": [],
+        "validator_source_sha256": "6bca86b04df4dd31af4cd09ddc00f7f039f723666ffb777c31cba51333484b42",
+        "verified_at_utc": "2026-10-04T01:26:02.115879+00:00",
+        "claimed_objective": 557.5791258285909,
+        "claimed_objective_minus_proved_upper": -7.048583938740194e-12,
+        "oracle_missed_lower_minimum": false
+      }
+    },
+    {
+      "candidate": 1,
+      "repair": 0,
+      "certificate": {
+        "valid": true,
+        "certified": true,
+        "status": "certified",
+        "n": 49,
+        "objective_lower": 557.5791248277058,
+        "objective_upper": 557.579125827423,
+        "objective_estimate": 557.5791258274161,
+        "gap": 9.997172583098293e-07,
+        "tolerance": 1e-06,
+        "witness": [
+          0.7362069746056408,
+          0.8766135223442469
+        ],
+        "witness_intensity_interval": [
+          557.5791258274093,
+          557.579125827423
+        ],
+        "processed_boxes": 8711,
+        "remaining_boxes": 0,
+        "elapsed_seconds": 6.986230914015323,
+        "domain": [
+          0.0,
+          1.0,
+          0.0,
+          1.0
+        ],
+        "coordinate_interpretation": "exact IEEE-754 binary64 values",
+        "coordinates_sha256_float64_little_endian": "fef20c6bf4afeb8c91fd169006b57aba337017332c73bab5c74b8080a9dbf160",
+        "bound_method": "outward-rounded spatial branch and bound; reciprocal tangents, farthest distances, cubic Taylor bounds",
+        "numerical_minima": [],
+        "validator_source_sha256": "6bca86b04df4dd31af4cd09ddc00f7f039f723666ffb777c31cba51333484b42",
+        "verified_at_utc": "2026-10-04T01:26:09.109836+00:00",
+        "claimed_objective": 557.5791258274161,
+        "claimed_objective_minus_proved_upper": -6.934897101018578e-12,
+        "oracle_missed_lower_minimum": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,53 @@
+{
+  "verified_at_utc": "2026-10-04T01:33:08.587591+00:00",
+  "cases": [
+    36,
+    37,
+    38,
+    39,
+    40,
+    41,
+    42,
+    43,
+    44,
+    45,
+    46,
+    47,
+    48,
+    49,
+    50
+  ],
+  "all_geometries_valid": true,
+  "all_objectives_certified": true,
+  "maximum_certificate_gap": 9.999894245993347e-08,
+  "exact_csv_json_hex_round_trips": "15 of 15 passed",
+  "certificate_coordinate_hashes": "15 of 15 passed",
+  "per_case_artifact_hashes": "15 of 15 passed",
+  "svg_and_png_integrity": "15 of 15 passed",
+  "png_resolution": [
+    3500,
+    3727
+  ],
+  "regression_tests": {
+    "passed": 13,
+    "failed": 0
+  },
+  "independent_visual_reviews": [
+    36,
+    39,
+    50
+  ],
+  "future_worker_validation_smoke": "passed",
+  "run_completed_seconds": 14400.306511640549,
+  "source_core_current_copy_hashes_match": true,
+  "gif_export_verified_at_utc": "2026-10-08T13:04:48.019227+00:00",
+  "gif_integrity": "15 of 15 passed; static single-frame GIFs",
+  "gif_resolution": [
+    3500,
+    3727
+  ],
+  "gif_fidelity_reviews": [
+    36,
+    50
+  ]
+}

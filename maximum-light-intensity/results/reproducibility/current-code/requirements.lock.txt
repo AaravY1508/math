@@ -1,0 +1,7 @@
+# Tested on CPython 3.12.3, Linux x86_64.
+numpy==1.26.4
+scipy==1.11.4
+numba==0.68.0
+llvmlite==0.50.0
+matplotlib==3.6.3
+Pillow==10.2.0

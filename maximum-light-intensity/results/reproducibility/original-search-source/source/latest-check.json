@@ -1,0 +1,12 @@
+{
+  "checked_at_utc": "2026-10-04T01:21:48.982619+00:00",
+  "source_url": "https://erich-friedman.github.io/packing/light/",
+  "current_sha256": "c0384b836eb3397050df90f099d14bbe33e1525e24c882a810cab60c83c92481",
+  "archived_sha256": "73d88482aea98a14584c79dc23e5e2718f1f9750cba99a8d0e32f00bf885401a",
+  "unchanged": false,
+  "published_values_unchanged": true,
+  "target_n36_to_n50_baselines_unchanged": true,
+  "changes": [
+    "The n=21 attribution changed from You Junzhe to Junzhe You. No other HTML content changed."
+  ]
+}

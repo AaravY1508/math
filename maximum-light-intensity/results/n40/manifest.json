@@ -1,0 +1,51 @@
+{
+  "n": 40,
+  "coordinates_sha256_float64_little_endian": "bd6a01e6a472e52e94609d26533458c14c3400543428551a3264b0da946a9f73",
+  "files": [
+    {
+      "file": "README.md",
+      "bytes": 2488,
+      "sha256": "83f2264100c5839293682fe6880230c10c11b3871283d612738dfd8b70c2baaa"
+    },
+    {
+      "file": "checkpoint.json",
+      "bytes": 16082,
+      "sha256": "0662039e566ee8d1949caa329a8345d93d60dc7f3cb106cb75537811d8c8f905"
+    },
+    {
+      "file": "coordinates.csv",
+      "bytes": 1861,
+      "sha256": "52071acf12d8b0250f63576c56de988be1a86e8e6030dce38c676cc581e23504"
+    },
+    {
+      "file": "diagram.gif",
+      "bytes": 1016675,
+      "sha256": "53122405a254b9659868dc114ef3a10ab82f0426c432e1b70410b725513edddb"
+    },
+    {
+      "file": "diagram.png",
+      "bytes": 2750530,
+      "sha256": "abc41ea4755e111df09d0705ca945c17b242403e363a23cca01a2546ac841d94"
+    },
+    {
+      "file": "diagram.svg",
+      "bytes": 827343,
+      "sha256": "81e7e65482b8dc60addc8414a5e4fa7a801f1c72a899e7770a210bdf4fb9244a"
+    },
+    {
+      "file": "solution.json",
+      "bytes": 67540,
+      "sha256": "d9a2a2631115e016751c19294003438872edacf5777c47d39ddccebdd9e17a9c"
+    },
+    {
+      "file": "validation.json",
+      "bytes": 42881,
+      "sha256": "5493aa6de8874a7bbd5b7ec0d9f80872f43da1fc205bf2525b7db14d45ed4f81"
+    },
+    {
+      "file": "witnesses.csv",
+      "bytes": 25066,
+      "sha256": "8e014d48c2363d0e3ce7261dab046e82a209709b72aa665ab631f7bc90d33d03"
+    }
+  ]
+}

@@ -1,0 +1,189 @@
+{
+  "n": 37,
+  "input_count": 5,
+  "polished_count": 3,
+  "best_objective": 387.71139686736774,
+  "certificate_lower": 387.7113958690206,
+  "certified": true,
+  "elapsed_seconds": 14.753587245941162,
+  "decisions": [
+    {
+      "stage": "rerank",
+      "sources": [
+        "runs/benchmark/checkpoints/n37/best.json",
+        "runs/benchmark/checkpoints/n37/history/0000249.json"
+      ],
+      "hash": "07240345b5149f796496135288e03771c0a2886cf47d61e27354ce0130556986",
+      "claimed": 387.6610918925614,
+      "corrected": 387.66109189256133,
+      "drop": 5.684341886080802e-14
+    },
+    {
+      "stage": "rerank",
+      "sources": [
+        "runs/benchmark/checkpoints/n37/history/0000001.json"
+      ],
+      "hash": "d1f2c4c760c287933879ae51138702e3506bb701c71f96cc6e5fcf0a8f03d09b",
+      "claimed": 359.8255777058697,
+      "corrected": 359.8255777058697,
+      "drop": 0.0
+    },
+    {
+      "stage": "rerank",
+      "sources": [
+        "runs/benchmark/checkpoints/n37/history/0000016.json"
+      ],
+      "hash": "0e594866cac2000c2fff5310f10850981186c92743e8422569a2ae8ef36c6d21",
+      "claimed": 387.18494730189684,
+      "corrected": 387.18494730189684,
+      "drop": 0.0
+    },
+    {
+      "stage": "rerank",
+      "sources": [
+        "runs/benchmark/checkpoints/n37/history/0000030.json"
+      ],
+      "hash": "6818932ff482498e07fb02c3ba25e5fdac0d3f0b85aec973d88707a45643ee6a",
+      "claimed": 387.66109189144356,
+      "corrected": 387.6610918914434,
+      "drop": 1.7053025658242404e-13
+    },
+    {
+      "stage": "rerank",
+      "sources": [
+        "runs/four-hour/checkpoints/n37/best.json",
+        "runs/four-hour/checkpoints/n37/history/0000033.json",
+        "runs/four-hour/checkpoints/n37/validations/782a4f67ddf66daf1960c8fc2c9c5c8148677106ae964f23d528eabe907f69e6/checkpoint.json"
+      ],
+      "hash": "782a4f67ddf66daf1960c8fc2c9c5c8148677106ae964f23d528eabe907f69e6",
+      "claimed": 387.71139686736785,
+      "corrected": 387.71139686736774,
+      "drop": 1.1368683772161603e-13
+    },
+    {
+      "stage": "polish",
+      "candidate": 0,
+      "before": 387.71139686736774,
+      "after": 387.71139686736774,
+      "elapsed": 0.41329296003095806
+    },
+    {
+      "stage": "polish",
+      "candidate": 1,
+      "before": 387.66109189256133,
+      "after": 387.66109189256133,
+      "elapsed": 0.30504740215837955
+    },
+    {
+      "stage": "polish",
+      "candidate": 2,
+      "before": 387.18494730189684,
+      "after": 387.6610918925698,
+      "elapsed": 0.3591811761725694
+    },
+    {
+      "stage": "certificate",
+      "candidate": 0,
+      "repair": 0,
+      "numerical": 387.71139686736774,
+      "lower": 387.7113958690206,
+      "upper": 387.7113968673715,
+      "certified": true,
+      "elapsed": 6.133461372926831
+    },
+    {
+      "stage": "certificate",
+      "candidate": 1,
+      "repair": 0,
+      "numerical": 387.71139686736774,
+      "lower": 387.7113958690206,
+      "upper": 387.7113968673715,
+      "certified": true,
+      "elapsed": 6.259565791813657
+    }
+  ],
+  "certifications": [
+    {
+      "candidate": 0,
+      "repair": 0,
+      "certificate": {
+        "valid": true,
+        "certified": true,
+        "status": "certified",
+        "n": 37,
+        "objective_lower": 387.7113958690206,
+        "objective_upper": 387.7113968673715,
+        "objective_estimate": 387.71139686736774,
+        "gap": 9.98350913050672e-07,
+        "tolerance": 1e-06,
+        "witness": [
+          0.11710274776109848,
+          0.0
+        ],
+        "witness_intensity_interval": [
+          387.7113968673641,
+          387.7113968673715
+        ],
+        "processed_boxes": 7155,
+        "remaining_boxes": 0,
+        "elapsed_seconds": 6.133461372926831,
+        "domain": [
+          0.0,
+          1.0,
+          0.0,
+          1.0
+        ],
+        "coordinate_interpretation": "exact IEEE-754 binary64 values",
+        "coordinates_sha256_float64_little_endian": "782a4f67ddf66daf1960c8fc2c9c5c8148677106ae964f23d528eabe907f69e6",
+        "bound_method": "outward-rounded spatial branch and bound; reciprocal tangents, farthest distances, cubic Taylor bounds",
+        "numerical_minima": [],
+        "validator_source_sha256": "6bca86b04df4dd31af4cd09ddc00f7f039f723666ffb777c31cba51333484b42",
+        "verified_at_utc": "2026-10-04T01:25:37.635409+00:00",
+        "claimed_objective": 387.71139686736774,
+        "claimed_objective_minus_proved_upper": -3.751665644813329e-12,
+        "oracle_missed_lower_minimum": false
+      }
+    },
+    {
+      "candidate": 1,
+      "repair": 0,
+      "certificate": {
+        "valid": true,
+        "certified": true,
+        "status": "certified",
+        "n": 37,
+        "objective_lower": 387.7113958690206,
+        "objective_upper": 387.7113968673715,
+        "objective_estimate": 387.71139686736774,
+        "gap": 9.98350913050672e-07,
+        "tolerance": 1e-06,
+        "witness": [
+          0.11710274776109848,
+          0.0
+        ],
+        "witness_intensity_interval": [
+          387.7113968673641,
+          387.7113968673715
+        ],
+        "processed_boxes": 7155,
+        "remaining_boxes": 0,
+        "elapsed_seconds": 6.259565791813657,
+        "domain": [
+          0.0,
+          1.0,
+          0.0,
+          1.0
+        ],
+        "coordinate_interpretation": "exact IEEE-754 binary64 values",
+        "coordinates_sha256_float64_little_endian": "782a4f67ddf66daf1960c8fc2c9c5c8148677106ae964f23d528eabe907f69e6",
+        "bound_method": "outward-rounded spatial branch and bound; reciprocal tangents, farthest distances, cubic Taylor bounds",
+        "numerical_minima": [],
+        "validator_source_sha256": "6bca86b04df4dd31af4cd09ddc00f7f039f723666ffb777c31cba51333484b42",
+        "verified_at_utc": "2026-10-04T01:25:43.903635+00:00",
+        "claimed_objective": 387.71139686736774,
+        "claimed_objective_minus_proved_upper": -3.751665644813329e-12,
+        "oracle_missed_lower_minimum": false
+      }
+    }
+  ]
+}

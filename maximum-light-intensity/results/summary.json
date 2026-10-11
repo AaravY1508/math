@@ -1,0 +1,547 @@
+{
+  "generated_at_utc": "2026-10-04T01:31:04.153652+00:00",
+  "source": {
+    "source_url": "https://erich-friedman.github.io/packing/light/",
+    "retrieved_at_utc": "2026-10-02T12:27:31.681864+00:00",
+    "largest_published_n": 36,
+    "comparison_caveat": "Trailing plus values are displayed lower thresholds, not exact records. No baseline is inferred for unlisted n.",
+    "entries": {
+      "1": {
+        "n": 1,
+        "displayed": "2",
+        "value": 2.0,
+        "has_trailing_plus": false,
+        "attribution": "Trivial.",
+        "image": "1.gif",
+        "exact_coordinates_published": false
+      },
+      "2": {
+        "n": 2,
+        "displayed": "24/5 = 4.8",
+        "value": 4.8,
+        "has_trailing_plus": false,
+        "attribution": "Found by Erich Friedman in July 2026.",
+        "image": "2.gif",
+        "exact_coordinates_published": false
+      },
+      "3": {
+        "n": 3,
+        "displayed": "7.568+",
+        "value": 7.568,
+        "has_trailing_plus": true,
+        "attribution": "Found by Shaoheng Lai and Codex in August 2026.",
+        "image": "3.gif",
+        "exact_coordinates_published": false
+      },
+      "4": {
+        "n": 4,
+        "displayed": "17.729+",
+        "value": 17.729,
+        "has_trailing_plus": true,
+        "attribution": "Found by Erich Friedman in July 2026.",
+        "image": "4.gif",
+        "exact_coordinates_published": false
+      },
+      "5": {
+        "n": 5,
+        "displayed": "22.252+",
+        "value": 22.252,
+        "has_trailing_plus": true,
+        "attribution": "Found by Mishari Alhussain in September 2026.",
+        "image": "5.gif",
+        "exact_coordinates_published": false
+      },
+      "6": {
+        "n": 6,
+        "displayed": "29.791+",
+        "value": 29.791,
+        "has_trailing_plus": true,
+        "attribution": "Found by Erich Friedman in July 2026.",
+        "image": "6.gif",
+        "exact_coordinates_published": false
+      },
+      "7": {
+        "n": 7,
+        "displayed": "35.909+",
+        "value": 35.909,
+        "has_trailing_plus": true,
+        "attribution": "Found by Satoshi Kishimoto and GPT-5.6 Sol Pro in July 2026.",
+        "image": "7.gif",
+        "exact_coordinates_published": false
+      },
+      "8": {
+        "n": 8,
+        "displayed": "47.839+",
+        "value": 47.839,
+        "has_trailing_plus": true,
+        "attribution": "Found by Satoshi Kishimoto and GPT-5.6 Sol Pro in July 2026.",
+        "image": "8.gif",
+        "exact_coordinates_published": false
+      },
+      "9": {
+        "n": 9,
+        "displayed": "57.388+",
+        "value": 57.388,
+        "has_trailing_plus": true,
+        "attribution": "Found by Erich Friedman in July 2026.",
+        "image": "9.gif",
+        "exact_coordinates_published": false
+      },
+      "10": {
+        "n": 10,
+        "displayed": "64.751+",
+        "value": 64.751,
+        "has_trailing_plus": true,
+        "attribution": "Found by Mishari Alhussain in September 2026.",
+        "image": "10.gif",
+        "exact_coordinates_published": false
+      },
+      "11": {
+        "n": 11,
+        "displayed": "74.352+",
+        "value": 74.352,
+        "has_trailing_plus": true,
+        "attribution": "Found by Satoshi Kishimoto and GPT-5.6 Sol Pro in July 2026.",
+        "image": "11.gif",
+        "exact_coordinates_published": false
+      },
+      "12": {
+        "n": 12,
+        "displayed": "83.571+",
+        "value": 83.571,
+        "has_trailing_plus": true,
+        "attribution": "Found by Satoshi Kishimoto and GPT-5.6 Sol Pro in July 2026.",
+        "image": "12.gif",
+        "exact_coordinates_published": false
+      },
+      "13": {
+        "n": 13,
+        "displayed": "96.347+",
+        "value": 96.347,
+        "has_trailing_plus": true,
+        "attribution": "Found by Erich Friedman in July 2026.",
+        "image": "13.gif",
+        "exact_coordinates_published": false
+      },
+      "14": {
+        "n": 14,
+        "displayed": "106.190+",
+        "value": 106.19,
+        "has_trailing_plus": true,
+        "attribution": "Found by Satoshi Kishimoto and GPT-5.6 Sol Pro in July 2026.",
+        "image": "14.gif",
+        "exact_coordinates_published": false
+      },
+      "15": {
+        "n": 15,
+        "displayed": "115.159+",
+        "value": 115.159,
+        "has_trailing_plus": true,
+        "attribution": "Found by Mishari Alhussain in September 2026.",
+        "image": "15.gif",
+        "exact_coordinates_published": false
+      },
+      "16": {
+        "n": 16,
+        "displayed": "125.458+",
+        "value": 125.458,
+        "has_trailing_plus": true,
+        "attribution": "Found by Mishari Alhussain in September 2026.",
+        "image": "16.gif",
+        "exact_coordinates_published": false
+      },
+      "17": {
+        "n": 17,
+        "displayed": "135.166+",
+        "value": 135.166,
+        "has_trailing_plus": true,
+        "attribution": "Found by Mishari Alhussain in September 2026.",
+        "image": "17.gif",
+        "exact_coordinates_published": false
+      },
+      "18": {
+        "n": 18,
+        "displayed": "147.341+",
+        "value": 147.341,
+        "has_trailing_plus": true,
+        "attribution": "Found by Mishari Alhussain in September 2026.",
+        "image": "18.gif",
+        "exact_coordinates_published": false
+      },
+      "19": {
+        "n": 19,
+        "displayed": "159.385+",
+        "value": 159.385,
+        "has_trailing_plus": true,
+        "attribution": "Found by Mishari Alhussain in September 2026.",
+        "image": "19.gif",
+        "exact_coordinates_published": false
+      },
+      "20": {
+        "n": 20,
+        "displayed": "174.655+",
+        "value": 174.655,
+        "has_trailing_plus": true,
+        "attribution": "Found by Mishari Alhussain in September 2026.",
+        "image": "20.gif",
+        "exact_coordinates_published": false
+      },
+      "21": {
+        "n": 21,
+        "displayed": "184.439+",
+        "value": 184.439,
+        "has_trailing_plus": true,
+        "attribution": "Found by You Junzhe in September 2026.",
+        "image": "21.gif",
+        "exact_coordinates_published": false
+      },
+      "22": {
+        "n": 22,
+        "displayed": "195.360+",
+        "value": 195.36,
+        "has_trailing_plus": true,
+        "attribution": "Found by Mishari Alhussain in September 2026.",
+        "image": "22.gif",
+        "exact_coordinates_published": false
+      },
+      "23": {
+        "n": 23,
+        "displayed": "206.538+",
+        "value": 206.538,
+        "has_trailing_plus": true,
+        "attribution": "Found by Mishari Alhussain in September 2026.",
+        "image": "23.gif",
+        "exact_coordinates_published": false
+      },
+      "24": {
+        "n": 24,
+        "displayed": "219.197+",
+        "value": 219.197,
+        "has_trailing_plus": true,
+        "attribution": "Found by Mishari Alhussain in September 2026.",
+        "image": "24.gif",
+        "exact_coordinates_published": false
+      },
+      "25": {
+        "n": 25,
+        "displayed": "229.700+",
+        "value": 229.7,
+        "has_trailing_plus": true,
+        "attribution": "Found by Mishari Alhussain in September 2026.",
+        "image": "25.gif",
+        "exact_coordinates_published": false
+      },
+      "26": {
+        "n": 26,
+        "displayed": "242.004+",
+        "value": 242.004,
+        "has_trailing_plus": true,
+        "attribution": "Found by Mishari Alhussain in September 2026.",
+        "image": "26.gif",
+        "exact_coordinates_published": false
+      },
+      "27": {
+        "n": 27,
+        "displayed": "254.776+",
+        "value": 254.776,
+        "has_trailing_plus": true,
+        "attribution": "Found by Mishari Alhussain in September 2026.",
+        "image": "27.gif",
+        "exact_coordinates_published": false
+      },
+      "28": {
+        "n": 28,
+        "displayed": "269.279+",
+        "value": 269.279,
+        "has_trailing_plus": true,
+        "attribution": "Found by Mishari Alhussain in September 2026.",
+        "image": "28.gif",
+        "exact_coordinates_published": false
+      },
+      "29": {
+        "n": 29,
+        "displayed": "285.128+",
+        "value": 285.128,
+        "has_trailing_plus": true,
+        "attribution": "Found by Mishari Alhussain in September 2026.",
+        "image": "29.gif",
+        "exact_coordinates_published": false
+      },
+      "30": {
+        "n": 30,
+        "displayed": "296.005+",
+        "value": 296.005,
+        "has_trailing_plus": true,
+        "attribution": "Found by Mishari Alhussain in September 2026.",
+        "image": "30.gif",
+        "exact_coordinates_published": false
+      },
+      "31": {
+        "n": 31,
+        "displayed": "307.962+",
+        "value": 307.962,
+        "has_trailing_plus": true,
+        "attribution": "Found by Mishari Alhussain in September 2026.",
+        "image": "31.gif",
+        "exact_coordinates_published": false
+      },
+      "32": {
+        "n": 32,
+        "displayed": "320.497+",
+        "value": 320.497,
+        "has_trailing_plus": true,
+        "attribution": "Found by Mishari Alhussain in September 2026.",
+        "image": "32.gif",
+        "exact_coordinates_published": false
+      },
+      "33": {
+        "n": 33,
+        "displayed": "334.037+",
+        "value": 334.037,
+        "has_trailing_plus": true,
+        "attribution": "Found by Mishari Alhussain in September 2026.",
+        "image": "33.gif",
+        "exact_coordinates_published": false
+      },
+      "34": {
+        "n": 34,
+        "displayed": "346.509+",
+        "value": 346.509,
+        "has_trailing_plus": true,
+        "attribution": "Found by Mishari Alhussain in September 2026.",
+        "image": "34.gif",
+        "exact_coordinates_published": false
+      },
+      "35": {
+        "n": 35,
+        "displayed": "359.463+",
+        "value": 359.463,
+        "has_trailing_plus": true,
+        "attribution": "Found by Mishari Alhussain in September 2026.",
+        "image": "35.gif",
+        "exact_coordinates_published": false
+      },
+      "36": {
+        "n": 36,
+        "displayed": "373.207+",
+        "value": 373.207,
+        "has_trailing_plus": true,
+        "attribution": "Found by Mishari Alhussain in September 2026.",
+        "image": "36.gif",
+        "exact_coordinates_published": false
+      }
+    }
+  },
+  "results": [
+    {
+      "n": 36,
+      "published_best": "373.207+",
+      "published_threshold": 373.207,
+      "our_best": 373.2073913573098,
+      "objective_upper": 373.2073914541619,
+      "objective_numerical": 373.2073914541583,
+      "improvement": 0.00039135730980888184,
+      "valid": true,
+      "certified": true,
+      "files": "n36/",
+      "comparison_status": "matches the published value at printed precision",
+      "checkpoint_sha256": "9e20784ad53f592fcba32ee0c7a76bb8c348e77c7a3393b5dca2e49e0e68d356"
+    },
+    {
+      "n": 37,
+      "published_best": "not listed",
+      "published_threshold": null,
+      "our_best": 387.71139676819035,
+      "objective_upper": 387.7113968673715,
+      "objective_numerical": 387.71139686736774,
+      "improvement": null,
+      "valid": true,
+      "certified": true,
+      "files": "n37/",
+      "comparison_status": "no published entry",
+      "checkpoint_sha256": "3bf323b1041f538e75676d79e386c7ceea5534cf1747cd02da9829871e156b02"
+    },
+    {
+      "n": 38,
+      "published_best": "not listed",
+      "published_threshold": null,
+      "our_best": 402.7935475371203,
+      "objective_upper": 402.7935476342351,
+      "objective_numerical": 402.7935476342311,
+      "improvement": null,
+      "valid": true,
+      "certified": true,
+      "files": "n38/",
+      "comparison_status": "no published entry",
+      "checkpoint_sha256": "e64f08745653d3c505c8f418b5ab90fd381190e92c250771e11cb237ece4676d"
+    },
+    {
+      "n": 39,
+      "published_best": "not listed",
+      "published_threshold": null,
+      "our_best": 416.03829410616225,
+      "objective_upper": 416.0382942060697,
+      "objective_numerical": 416.0382942060655,
+      "improvement": null,
+      "valid": true,
+      "certified": true,
+      "files": "n39/",
+      "comparison_status": "no published entry",
+      "checkpoint_sha256": "7be5145474097a39f68c6938c8973afaa55b59a0949de73fec14181b357e8bcc"
+    },
+    {
+      "n": 40,
+      "published_best": "not listed",
+      "published_threshold": null,
+      "our_best": 431.0891211116772,
+      "objective_upper": 431.0891212107415,
+      "objective_numerical": 431.08912121073706,
+      "improvement": null,
+      "valid": true,
+      "certified": true,
+      "files": "n40/",
+      "comparison_status": "no published entry",
+      "checkpoint_sha256": "0662039e566ee8d1949caa329a8345d93d60dc7f3cb106cb75537811d8c8f905"
+    },
+    {
+      "n": 41,
+      "published_best": "not listed",
+      "published_threshold": null,
+      "our_best": 443.9738878395057,
+      "objective_upper": 443.97388793900683,
+      "objective_numerical": 443.97388793900217,
+      "improvement": null,
+      "valid": true,
+      "certified": true,
+      "files": "n41/",
+      "comparison_status": "no published entry",
+      "checkpoint_sha256": "cb6f48eaecb9712f1d963a4c4b7203cdaaf88172832f669d185766a38210bc78"
+    },
+    {
+      "n": 42,
+      "published_best": "not listed",
+      "published_threshold": null,
+      "our_best": 457.6330892464763,
+      "objective_upper": 457.6330893456646,
+      "objective_numerical": 457.63308934565964,
+      "improvement": null,
+      "valid": true,
+      "certified": true,
+      "files": "n42/",
+      "comparison_status": "no published entry",
+      "checkpoint_sha256": "f0bfb5f237607b92a772abd6134209944f7459b71f15e64a70f1d2e7a7d5b760"
+    },
+    {
+      "n": 43,
+      "published_best": "not listed",
+      "published_threshold": null,
+      "our_best": 471.02413951812144,
+      "objective_upper": 471.02413961760817,
+      "objective_numerical": 471.02413961760305,
+      "improvement": null,
+      "valid": true,
+      "certified": true,
+      "files": "n43/",
+      "comparison_status": "no published entry",
+      "checkpoint_sha256": "19c94443f52a8e3194f06d0c2ef0b524b87913745ff3415973d469ec47930e03"
+    },
+    {
+      "n": 44,
+      "published_best": "not listed",
+      "published_threshold": null,
+      "our_best": 485.2415249769224,
+      "objective_upper": 485.24152507688615,
+      "objective_numerical": 485.24152507688075,
+      "improvement": null,
+      "valid": true,
+      "certified": true,
+      "files": "n44/",
+      "comparison_status": "no published entry",
+      "checkpoint_sha256": "f53f3f63ac9e83905f5717fb88a9ff5083b3e755feaa0e42d93f8255f9578305"
+    },
+    {
+      "n": 45,
+      "published_best": "not listed",
+      "published_threshold": null,
+      "our_best": 499.2191999211275,
+      "objective_upper": 499.2192000211264,
+      "objective_numerical": 499.2192000211207,
+      "improvement": null,
+      "valid": true,
+      "certified": true,
+      "files": "n45/",
+      "comparison_status": "no published entry",
+      "checkpoint_sha256": "da42f612b83f2feccd941e97562081c54818ef7067580278a9c342c46950e2ae"
+    },
+    {
+      "n": 46,
+      "published_best": "not listed",
+      "published_threshold": null,
+      "our_best": 513.6354681685175,
+      "objective_upper": 513.6354682681763,
+      "objective_numerical": 513.6354682681704,
+      "improvement": null,
+      "valid": true,
+      "certified": true,
+      "files": "n46/",
+      "comparison_status": "no published entry",
+      "checkpoint_sha256": "d3dbdd098159afd3d48242fdc860f7d45b8a31162ba4405059bff8e16f221aaf"
+    },
+    {
+      "n": 47,
+      "published_best": "not listed",
+      "published_threshold": null,
+      "our_best": 528.1791267955655,
+      "objective_upper": 528.1791268948461,
+      "objective_numerical": 528.1791268948398,
+      "improvement": null,
+      "valid": true,
+      "certified": true,
+      "files": "n47/",
+      "comparison_status": "no published entry",
+      "checkpoint_sha256": "2c28945a47c41cd59aae033489fa36c0ce47fe56775ba6a804ccf36ddaae533d"
+    },
+    {
+      "n": 48,
+      "published_best": "not listed",
+      "published_threshold": null,
+      "our_best": 543.6729310366942,
+      "objective_upper": 543.6729311365925,
+      "objective_numerical": 543.6729311365859,
+      "improvement": null,
+      "valid": true,
+      "certified": true,
+      "files": "n48/",
+      "comparison_status": "no published entry",
+      "checkpoint_sha256": "15e40b8b38b809b10b7a0b65d07ab20ae8fa3be4be5419de998347842913b656"
+    },
+    {
+      "n": 49,
+      "published_best": "not listed",
+      "published_threshold": null,
+      "our_best": 557.5791257290023,
+      "objective_upper": 557.579125828598,
+      "objective_numerical": 557.5791258285909,
+      "improvement": null,
+      "valid": true,
+      "certified": true,
+      "files": "n49/",
+      "comparison_status": "no published entry",
+      "checkpoint_sha256": "38a7fbaa939fba904b8970517b9a36f484e2ace9ccaaed912c16b4a132fa104d"
+    },
+    {
+      "n": 50,
+      "published_best": "not listed",
+      "published_threshold": null,
+      "our_best": 572.3938993316206,
+      "objective_upper": 572.3938994300322,
+      "objective_numerical": 572.3938994300249,
+      "improvement": null,
+      "valid": true,
+      "certified": true,
+      "files": "n50/",
+      "comparison_status": "no published entry",
+      "checkpoint_sha256": "f42bd057967e18451fb90aba35e550fa4859b8bb9181269a20bb06bdcf2e8d41"
+    }
+  ]
+}

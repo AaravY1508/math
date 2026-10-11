@@ -1,0 +1,298 @@
+{
+  "n": 46,
+  "input_count": 5,
+  "polished_count": 4,
+  "best_objective": 513.6354682681704,
+  "certificate_lower": 513.6354672759874,
+  "certified": true,
+  "elapsed_seconds": 26.06359553337097,
+  "decisions": [
+    {
+      "stage": "rerank",
+      "sources": [
+        "runs/benchmark/checkpoints/n46/best.json",
+        "runs/benchmark/checkpoints/n46/history/0000174.json",
+        "runs/four-hour/checkpoints/n46/best.json",
+        "runs/four-hour/checkpoints/n46/validations/99bb7fe200eec1ed86e70d0dbcb9fa5e5eafe46d0a7a0122ebfeb1dca6dccdc0/checkpoint.json"
+      ],
+      "hash": "99bb7fe200eec1ed86e70d0dbcb9fa5e5eafe46d0a7a0122ebfeb1dca6dccdc0",
+      "claimed": 513.6354682681704,
+      "corrected": 513.6354682681704,
+      "drop": 0.0
+    },
+    {
+      "stage": "rerank",
+      "sources": [
+        "runs/benchmark/checkpoints/n46/history/0000010.json"
+      ],
+      "hash": "e48de65746c98e1dc77c30bbfadbdd9ffce571d506a188236e9bd99e98ac6775",
+      "claimed": 476.4627983278474,
+      "corrected": 476.46279832784734,
+      "drop": 5.684341886080802e-14
+    },
+    {
+      "stage": "rerank",
+      "sources": [
+        "runs/benchmark/checkpoints/n46/history/0000025.json"
+      ],
+      "hash": "6ec3eb4c64249dc64a81d6c097dd3be7c119fdd0beab4b386b1566949b42623e",
+      "claimed": 494.1445589629527,
+      "corrected": 494.14455896295266,
+      "drop": 5.684341886080802e-14
+    },
+    {
+      "stage": "rerank",
+      "sources": [
+        "runs/benchmark/checkpoints/n46/history/0000045.json"
+      ],
+      "hash": "0aaaf42c82827570d617ac9f115ae1587f8fd130ef138e9779f278d44a3fc69e",
+      "claimed": 506.89665909258184,
+      "corrected": 506.8966590925818,
+      "drop": 5.684341886080802e-14
+    },
+    {
+      "stage": "rerank",
+      "sources": [
+        "runs/benchmark/checkpoints/n46/history/0000072.json"
+      ],
+      "hash": "26594f62fe6ffeff831bbdb9ad9e8e229be9c694bb6a9bb48ddbfe7a450ef151",
+      "claimed": 513.6354682667381,
+      "corrected": 513.6354682667381,
+      "drop": 0.0
+    },
+    {
+      "stage": "polish",
+      "candidate": 0,
+      "before": 513.6354682681704,
+      "after": 513.635468268761,
+      "elapsed": 0.37757220794446766
+    },
+    {
+      "stage": "polish",
+      "candidate": 1,
+      "before": 506.8966590925818,
+      "after": 506.8966590981557,
+      "elapsed": 0.4482843610458076
+    },
+    {
+      "stage": "polish",
+      "candidate": 2,
+      "before": 494.14455896295266,
+      "after": 510.2958776695384,
+      "elapsed": 0.5375044550746679
+    },
+    {
+      "stage": "polish",
+      "candidate": 3,
+      "before": 513.6354682667381,
+      "after": 513.6354682687306,
+      "elapsed": 0.38702340284362435
+    },
+    {
+      "stage": "certificate",
+      "candidate": 0,
+      "repair": 0,
+      "numerical": 513.635468268761,
+      "lower": 513.6354672688996,
+      "upper": 513.6354682687669,
+      "certified": true,
+      "elapsed": 5.647766601992771
+    },
+    {
+      "stage": "certificate",
+      "candidate": 1,
+      "repair": 0,
+      "numerical": 513.6354682687306,
+      "lower": 513.6354672709118,
+      "upper": 513.6354682687366,
+      "certified": true,
+      "elapsed": 5.538131810026243
+    },
+    {
+      "stage": "certificate",
+      "candidate": 2,
+      "repair": 0,
+      "numerical": 513.6354682681704,
+      "lower": 513.6354672759874,
+      "upper": 513.6354682681763,
+      "certified": true,
+      "elapsed": 5.630208752816543
+    },
+    {
+      "stage": "certificate",
+      "candidate": 3,
+      "repair": 0,
+      "numerical": 513.6354682667381,
+      "lower": 513.6354672756252,
+      "upper": 513.6354682667443,
+      "certified": true,
+      "elapsed": 5.7564224558882415
+    }
+  ],
+  "certifications": [
+    {
+      "candidate": 0,
+      "repair": 0,
+      "certificate": {
+        "valid": true,
+        "certified": true,
+        "status": "certified",
+        "n": 46,
+        "objective_lower": 513.6354672688996,
+        "objective_upper": 513.6354682687669,
+        "objective_estimate": 513.635468268761,
+        "gap": 9.998673249356218e-07,
+        "tolerance": 1e-06,
+        "witness": [
+          0.0,
+          0.37497922630265257
+        ],
+        "witness_intensity_interval": [
+          513.635468268755,
+          513.6354682687669
+        ],
+        "processed_boxes": 7132,
+        "remaining_boxes": 0,
+        "elapsed_seconds": 5.647766601992771,
+        "domain": [
+          0.0,
+          1.0,
+          0.0,
+          1.0
+        ],
+        "coordinate_interpretation": "exact IEEE-754 binary64 values",
+        "coordinates_sha256_float64_little_endian": "54906065af1d9650b4432669ceeaffe0ead809632c565da3afa3ce1623eafbeb",
+        "bound_method": "outward-rounded spatial branch and bound; reciprocal tangents, farthest distances, cubic Taylor bounds",
+        "numerical_minima": [],
+        "validator_source_sha256": "6bca86b04df4dd31af4cd09ddc00f7f039f723666ffb777c31cba51333484b42",
+        "verified_at_utc": "2026-10-04T01:25:59.032646+00:00",
+        "claimed_objective": 513.635468268761,
+        "claimed_objective_minus_proved_upper": -5.9117155615240335e-12,
+        "oracle_missed_lower_minimum": false
+      }
+    },
+    {
+      "candidate": 1,
+      "repair": 0,
+      "certificate": {
+        "valid": true,
+        "certified": true,
+        "status": "certified",
+        "n": 46,
+        "objective_lower": 513.6354672709118,
+        "objective_upper": 513.6354682687366,
+        "objective_estimate": 513.6354682687306,
+        "gap": 9.978248272091152e-07,
+        "tolerance": 1e-06,
+        "witness": [
+          0.27599651865288816,
+          0.1431812756621376
+        ],
+        "witness_intensity_interval": [
+          513.6354682687246,
+          513.6354682687366
+        ],
+        "processed_boxes": 7133,
+        "remaining_boxes": 0,
+        "elapsed_seconds": 5.538131810026243,
+        "domain": [
+          0.0,
+          1.0,
+          0.0,
+          1.0
+        ],
+        "coordinate_interpretation": "exact IEEE-754 binary64 values",
+        "coordinates_sha256_float64_little_endian": "e8f7bcf8ec704fa422af626e5bdb2825021e285f163cf860ecb5de58fa12224e",
+        "bound_method": "outward-rounded spatial branch and bound; reciprocal tangents, farthest distances, cubic Taylor bounds",
+        "numerical_minima": [],
+        "validator_source_sha256": "6bca86b04df4dd31af4cd09ddc00f7f039f723666ffb777c31cba51333484b42",
+        "verified_at_utc": "2026-10-04T01:26:04.582104+00:00",
+        "claimed_objective": 513.6354682687306,
+        "claimed_objective_minus_proved_upper": -6.0254023992456496e-12,
+        "oracle_missed_lower_minimum": false
+      }
+    },
+    {
+      "candidate": 2,
+      "repair": 0,
+      "certificate": {
+        "valid": true,
+        "certified": true,
+        "status": "certified",
+        "n": 46,
+        "objective_lower": 513.6354672759874,
+        "objective_upper": 513.6354682681763,
+        "objective_estimate": 513.6354682681704,
+        "gap": 9.921889159159038e-07,
+        "tolerance": 1e-06,
+        "witness": [
+          1.0,
+          0.6538306632848443
+        ],
+        "witness_intensity_interval": [
+          513.6354682681643,
+          513.6354682681763
+        ],
+        "processed_boxes": 7131,
+        "remaining_boxes": 0,
+        "elapsed_seconds": 5.630208752816543,
+        "domain": [
+          0.0,
+          1.0,
+          0.0,
+          1.0
+        ],
+        "coordinate_interpretation": "exact IEEE-754 binary64 values",
+        "coordinates_sha256_float64_little_endian": "99bb7fe200eec1ed86e70d0dbcb9fa5e5eafe46d0a7a0122ebfeb1dca6dccdc0",
+        "bound_method": "outward-rounded spatial branch and bound; reciprocal tangents, farthest distances, cubic Taylor bounds",
+        "numerical_minima": [],
+        "validator_source_sha256": "6bca86b04df4dd31af4cd09ddc00f7f039f723666ffb777c31cba51333484b42",
+        "verified_at_utc": "2026-10-04T01:26:10.221082+00:00",
+        "claimed_objective": 513.6354682681704,
+        "claimed_objective_minus_proved_upper": -5.9117155615240335e-12,
+        "oracle_missed_lower_minimum": false
+      }
+    },
+    {
+      "candidate": 3,
+      "repair": 0,
+      "certificate": {
+        "valid": true,
+        "certified": true,
+        "status": "certified",
+        "n": 46,
+        "objective_lower": 513.6354672756252,
+        "objective_upper": 513.6354682667443,
+        "objective_estimate": 513.6354682667381,
+        "gap": 9.911191227729434e-07,
+        "tolerance": 1e-06,
+        "witness": [
+          1.0,
+          1.0
+        ],
+        "witness_intensity_interval": [
+          513.6354682667322,
+          513.6354682667443
+        ],
+        "processed_boxes": 7132,
+        "remaining_boxes": 0,
+        "elapsed_seconds": 5.7564224558882415,
+        "domain": [
+          0.0,
+          1.0,
+          0.0,
+          1.0
+        ],
+        "coordinate_interpretation": "exact IEEE-754 binary64 values",
+        "coordinates_sha256_float64_little_endian": "26594f62fe6ffeff831bbdb9ad9e8e229be9c694bb6a9bb48ddbfe7a450ef151",
+        "bound_method": "outward-rounded spatial branch and bound; reciprocal tangents, farthest distances, cubic Taylor bounds",
+        "numerical_minima": [],
+        "validator_source_sha256": "6bca86b04df4dd31af4cd09ddc00f7f039f723666ffb777c31cba51333484b42",
+        "verified_at_utc": "2026-10-04T01:26:15.988203+00:00",
+        "claimed_objective": 513.6354682667381,
+        "claimed_objective_minus_proved_upper": -6.139089236967266e-12,
+        "oracle_missed_lower_minimum": false
+      }
+    }
+  ]
+}

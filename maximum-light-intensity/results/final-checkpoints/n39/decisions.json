@@ -1,0 +1,300 @@
+{
+  "n": 39,
+  "input_count": 5,
+  "polished_count": 4,
+  "best_objective": 416.0382942060655,
+  "certificate_lower": 416.0382932132262,
+  "certified": true,
+  "elapsed_seconds": 23.34220290184021,
+  "decisions": [
+    {
+      "stage": "rerank",
+      "sources": [
+        "runs/benchmark/checkpoints/n39/best.json",
+        "runs/benchmark/checkpoints/n39/history/0000273.json",
+        "runs/four-hour/checkpoints/n39/validations/3a874347a12d728b0de1c6120db48732a237c71965fc58dfb851b708012dbf6b/checkpoint.json"
+      ],
+      "hash": "3a874347a12d728b0de1c6120db48732a237c71965fc58dfb851b708012dbf6b",
+      "claimed": 416.0382942056725,
+      "corrected": 416.0382942056725,
+      "drop": 0.0
+    },
+    {
+      "stage": "rerank",
+      "sources": [
+        "runs/benchmark/checkpoints/n39/history/0000018.json"
+      ],
+      "hash": "8d36551268bf146a99ebd5964d4a44d7a4ff0b943a9ce283c6efaee3ac0ad379",
+      "claimed": 416.00654430311374,
+      "corrected": 416.00654430311357,
+      "drop": 1.7053025658242404e-13
+    },
+    {
+      "stage": "rerank",
+      "sources": [
+        "runs/benchmark/checkpoints/n39/history/0000074.json"
+      ],
+      "hash": "bbd1d2458a0daf8725c219a5882f91466b343660d9dcad090c28959d5211f6d9",
+      "claimed": 416.0065443053674,
+      "corrected": 416.0065443053674,
+      "drop": 0.0
+    },
+    {
+      "stage": "rerank",
+      "sources": [
+        "runs/four-hour/checkpoints/n39/best.json",
+        "runs/four-hour/checkpoints/n39/history/0032849.json",
+        "runs/four-hour/checkpoints/n39/validations/1d9b45b92b3de07628035bd87784d87cbeb6a3811e9faddf22325a7fba978513/checkpoint.json"
+      ],
+      "hash": "1d9b45b92b3de07628035bd87784d87cbeb6a3811e9faddf22325a7fba978513",
+      "claimed": 416.0456023583793,
+      "corrected": 415.56112421040393,
+      "drop": 0.4844781479753806
+    },
+    {
+      "stage": "rerank",
+      "sources": [
+        "runs/four-hour/checkpoints/n39/history/0021346.json",
+        "runs/four-hour/checkpoints/n39/validations/0fd7360eb00fb59c0d73fc3b8399332eee69148da58c35872654d9b5d3ac855a/checkpoint.json"
+      ],
+      "hash": "0fd7360eb00fb59c0d73fc3b8399332eee69148da58c35872654d9b5d3ac855a",
+      "claimed": 416.03980197599117,
+      "corrected": 415.903275062674,
+      "drop": 0.13652691331714095
+    },
+    {
+      "stage": "polish",
+      "candidate": 0,
+      "before": 416.0382942056725,
+      "after": 416.03829420605865,
+      "elapsed": 0.455442271893844
+    },
+    {
+      "stage": "polish",
+      "candidate": 1,
+      "before": 416.0065443053674,
+      "after": 416.00654430592976,
+      "elapsed": 0.3534389208070934
+    },
+    {
+      "stage": "polish",
+      "candidate": 2,
+      "before": 415.903275062674,
+      "after": 416.0382942060732,
+      "elapsed": 0.4017706960439682
+    },
+    {
+      "stage": "polish",
+      "candidate": 3,
+      "before": 415.56112421040393,
+      "after": 416.0382942060655,
+      "elapsed": 0.40831704600714147
+    },
+    {
+      "stage": "certificate",
+      "candidate": 0,
+      "repair": 0,
+      "numerical": 416.0382942060732,
+      "lower": 416.0382932123606,
+      "upper": 416.03829420607747,
+      "certified": true,
+      "elapsed": 5.092247292166576
+    },
+    {
+      "stage": "certificate",
+      "candidate": 1,
+      "repair": 0,
+      "numerical": 416.0382942060655,
+      "lower": 416.0382932132262,
+      "upper": 416.0382942060698,
+      "certified": true,
+      "elapsed": 4.879290025914088
+    },
+    {
+      "stage": "certificate",
+      "candidate": 2,
+      "repair": 0,
+      "numerical": 416.03829420605865,
+      "lower": 416.03829320963825,
+      "upper": 416.03829420606286,
+      "certified": true,
+      "elapsed": 5.227076319977641
+    },
+    {
+      "stage": "certificate",
+      "candidate": 3,
+      "repair": 0,
+      "numerical": 416.0382942056725,
+      "lower": 416.0382932066771,
+      "upper": 416.0382942056768,
+      "certified": true,
+      "elapsed": 4.992547217058018
+    }
+  ],
+  "certifications": [
+    {
+      "candidate": 0,
+      "repair": 0,
+      "certificate": {
+        "valid": true,
+        "certified": true,
+        "status": "certified",
+        "n": 39,
+        "objective_lower": 416.0382932123606,
+        "objective_upper": 416.03829420607747,
+        "objective_estimate": 416.0382942060732,
+        "gap": 9.937168670148824e-07,
+        "tolerance": 1e-06,
+        "witness": [
+          0.0,
+          1.0
+        ],
+        "witness_intensity_interval": [
+          416.03829420606905,
+          416.03829420607747
+        ],
+        "processed_boxes": 6375,
+        "remaining_boxes": 0,
+        "elapsed_seconds": 5.092247292166576,
+        "domain": [
+          0.0,
+          1.0,
+          0.0,
+          1.0
+        ],
+        "coordinate_interpretation": "exact IEEE-754 binary64 values",
+        "coordinates_sha256_float64_little_endian": "3a8200bb3c7e56fad656794bde4729b8bb54b434e3eaa9d10fcd735943911202",
+        "bound_method": "outward-rounded spatial branch and bound; reciprocal tangents, farthest distances, cubic Taylor bounds",
+        "numerical_minima": [],
+        "validator_source_sha256": "6bca86b04df4dd31af4cd09ddc00f7f039f723666ffb777c31cba51333484b42",
+        "verified_at_utc": "2026-10-04T01:25:37.374369+00:00",
+        "claimed_objective": 416.0382942060732,
+        "claimed_objective_minus_proved_upper": -4.263256414560601e-12,
+        "oracle_missed_lower_minimum": false
+      }
+    },
+    {
+      "candidate": 1,
+      "repair": 0,
+      "certificate": {
+        "valid": true,
+        "certified": true,
+        "status": "certified",
+        "n": 39,
+        "objective_lower": 416.0382932132262,
+        "objective_upper": 416.0382942060698,
+        "objective_estimate": 416.0382942060655,
+        "gap": 9.928435815709238e-07,
+        "tolerance": 1e-06,
+        "witness": [
+          0.0,
+          0.27882295937286533
+        ],
+        "witness_intensity_interval": [
+          416.03829420606127,
+          416.0382942060698
+        ],
+        "processed_boxes": 6375,
+        "remaining_boxes": 0,
+        "elapsed_seconds": 4.879290025914088,
+        "domain": [
+          0.0,
+          1.0,
+          0.0,
+          1.0
+        ],
+        "coordinate_interpretation": "exact IEEE-754 binary64 values",
+        "coordinates_sha256_float64_little_endian": "a346fc7bafe1ad7a18bb116d3afd53ebf6aae10a4748f3ad52949afa357ef7d9",
+        "bound_method": "outward-rounded spatial branch and bound; reciprocal tangents, farthest distances, cubic Taylor bounds",
+        "numerical_minima": [],
+        "validator_source_sha256": "6bca86b04df4dd31af4cd09ddc00f7f039f723666ffb777c31cba51333484b42",
+        "verified_at_utc": "2026-10-04T01:25:42.263471+00:00",
+        "claimed_objective": 416.0382942060655,
+        "claimed_objective_minus_proved_upper": -4.320099833421409e-12,
+        "oracle_missed_lower_minimum": false
+      }
+    },
+    {
+      "candidate": 2,
+      "repair": 0,
+      "certificate": {
+        "valid": true,
+        "certified": true,
+        "status": "certified",
+        "n": 39,
+        "objective_lower": 416.03829320963825,
+        "objective_upper": 416.03829420606286,
+        "objective_estimate": 416.03829420605865,
+        "gap": 9.96424603272317e-07,
+        "tolerance": 1e-06,
+        "witness": [
+          0.8353518947166176,
+          0.5317272661300197
+        ],
+        "witness_intensity_interval": [
+          416.0382942060545,
+          416.03829420606286
+        ],
+        "processed_boxes": 6374,
+        "remaining_boxes": 0,
+        "elapsed_seconds": 5.227076319977641,
+        "domain": [
+          0.0,
+          1.0,
+          0.0,
+          1.0
+        ],
+        "coordinate_interpretation": "exact IEEE-754 binary64 values",
+        "coordinates_sha256_float64_little_endian": "845eb5ff87ade4a745bf6cc894cfc36ea5ef72bc7b6d8d3855841c125fa8601a",
+        "bound_method": "outward-rounded spatial branch and bound; reciprocal tangents, farthest distances, cubic Taylor bounds",
+        "numerical_minima": [],
+        "validator_source_sha256": "6bca86b04df4dd31af4cd09ddc00f7f039f723666ffb777c31cba51333484b42",
+        "verified_at_utc": "2026-10-04T01:25:47.498678+00:00",
+        "claimed_objective": 416.03829420605865,
+        "claimed_objective_minus_proved_upper": -4.206412995699793e-12,
+        "oracle_missed_lower_minimum": false
+      }
+    },
+    {
+      "candidate": 3,
+      "repair": 0,
+      "certificate": {
+        "valid": true,
+        "certified": true,
+        "status": "certified",
+        "n": 39,
+        "objective_lower": 416.0382932066771,
+        "objective_upper": 416.0382942056768,
+        "objective_estimate": 416.0382942056725,
+        "gap": 9.989996669901304e-07,
+        "tolerance": 1e-06,
+        "witness": [
+          0.0,
+          0.7144056710220604
+        ],
+        "witness_intensity_interval": [
+          416.0382942056684,
+          416.0382942056768
+        ],
+        "processed_boxes": 6375,
+        "remaining_boxes": 0,
+        "elapsed_seconds": 4.992547217058018,
+        "domain": [
+          0.0,
+          1.0,
+          0.0,
+          1.0
+        ],
+        "coordinate_interpretation": "exact IEEE-754 binary64 values",
+        "coordinates_sha256_float64_little_endian": "3a874347a12d728b0de1c6120db48732a237c71965fc58dfb851b708012dbf6b",
+        "bound_method": "outward-rounded spatial branch and bound; reciprocal tangents, farthest distances, cubic Taylor bounds",
+        "numerical_minima": [],
+        "validator_source_sha256": "6bca86b04df4dd31af4cd09ddc00f7f039f723666ffb777c31cba51333484b42",
+        "verified_at_utc": "2026-10-04T01:25:52.491482+00:00",
+        "claimed_objective": 416.0382942056725,
+        "claimed_objective_minus_proved_upper": -4.263256414560601e-12,
+        "oracle_missed_lower_minimum": false
+      }
+    }
+  ]
+}

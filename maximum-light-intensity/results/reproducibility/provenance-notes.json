@@ -1,0 +1,12 @@
+{
+  "original_core_files_matching_run_hashes": [
+    "run_search.py",
+    "solver.py",
+    "experiments.py",
+    "baseline.py"
+  ],
+  "ancillary_source_note": "report.py and validation.py snapshots reflect versions completed during the search; source-comparison.json records their different launch hashes. Neither is imported by the original search worker.",
+  "original_status_note": "The original status.json is the last periodic update, 25.66 seconds before completion. run.json and the final stop event are authoritative for completion.",
+  "post_search_repair": "Final candidates were reranked and refined after the timed run because independent validation found five missed minima. Original claims are evidence only, not submission values.",
+  "replay_note": "Asynchronous scheduling affects future stochastic seed selection. Final coordinate data reproduces the submitted geometry exactly without replaying the search."
+}
